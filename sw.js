@@ -1,58 +1,129 @@
 // ============================================================
 // Service Worker — AMC অর্থনীতি হাজিরা সিস্টেম
+// Version: v2.0 (Stable)
 // ============================================================
-const CACHE_NAME = 'amc-attendance-v1';
+
+const CACHE_NAME = 'amc-attendance-v2';
+
+// শুধু এই ফাইলগুলো cache করব — অবশ্যই বিদ্যমান থাকতে হবে
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  './',
+  './index.html'
 ];
 
-// ইনস্টলেশনের সময় ক্যাশে সংরক্ষণ
+// ============================================================
+// INSTALL — প্রথমবার cache সেটআপ
+// ============================================================
 self.addEventListener('install', event => {
+  console.log('🔧 Service Worker installing...');
+  
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
-      .then(() => self.skipWaiting())
+      .then(cache => {
+        console.log('📦 Cache opened:', CACHE_NAME);
+        // addAll এর বদলে একটা একটা করে যোগ করছি, যাতে একটা fail করলে সব fail না হয়
+        return Promise.all(
+          urlsToCache.map(url => {
+            return cache.add(url).catch(err => {
+              console.log('⚠️ Cache add failed for:', url, err);
+            });
+          })
+        );
+      })
+      .then(() => {
+        console.log('✅ Service Worker installed');
+        return self.skipWaiting();
+      })
+      .catch(err => {
+        console.log('❌ Install failed:', err);
+      })
   );
 });
 
-// অ্যাক্টিভেশনের সময় পুরনো ক্যাশে মুছুন
+// ============================================================
+// ACTIVATE — পুরনো cache মুছুন
+// ============================================================
 self.addEventListener('activate', event => {
+  console.log('🔧 Service Worker activating...');
+  
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    caches.keys()
+      .then(cacheNames => {
+        return Promise.all(
+          cacheNames.map(cacheName => {
+            if (cacheName !== CACHE_NAME) {
+              console.log('🗑️ Removing old cache:', cacheName);
+              return caches.delete(cacheName);
+            }
+          })
+        );
+      })
+      .then(() => {
+        console.log('✅ Service Worker activated');
+        return self.clients.claim();
+      })
+      .catch(err => {
+        console.log('❌ Activate failed:', err);
+      })
   );
 });
 
-// ফেচ ইভেন্ট — অফলাইন ক্যাশিং
+// ============================================================
+// FETCH — নেটওয়ার্ক থেকে লোড, fallback হিসাবে cache
+// ============================================================
 self.addEventListener('fetch', event => {
-  // শুধু GET রিকোয়েস্ট ক্যাশে করব
+  // শুধু GET রিকোয়েস্ট
   if (event.request.method !== 'GET') return;
   
-  // Supabase API কল ক্যাশে করব না
-  if (event.request.url.includes('supabase.co')) return;
+  const url = event.request.url;
   
+  // Supabase API কল cache করব না
+  if (url.includes('supabase.co')) return;
+  
+  // CDN (Tailwind, jsPDF, etc.) cache করব না
+  if (url.includes('cdn.') || url.includes('cdnjs.') || url.includes('jsdelivr')) return;
+  
+  // Network-first strategy: আগে নেটওয়ার্ক চেষ্টা, fail হলে cache
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // সফল হলে ক্যাশে কপি রাখি
-        const responseClone = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseClone);
-        });
+        // সফল হলে cache-এ কপি রাখি
+        if (response && response.status === 200) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME)
+            .then(cache => {
+              cache.put(event.request, responseClone).catch(() => {});
+            });
+        }
         return response;
       })
       .catch(() => {
-        // নেটওয়ার্ক ফেইল হলে ক্যাশে থেকে দাও
-        return caches.match(event.request);
+        // নেটওয়ার্ক fail হলে cache থেকে দাও
+        return caches.match(event.request)
+          .then(cachedResponse => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            // cache-এও না থাকলে offline page
+            return new Response('অফলাইন — ইন্টারনেট সংযোগ নেই', {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: new Headers({
+                'Content-Type': 'text/plain; charset=utf-8'
+              })
+            });
+          });
       })
   );
 });
+
+// ============================================================
+// MESSAGE — ক্লায়েন্ট থেকে মেসেজ রিসিভ
+// ============================================================
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+console.log('✅ Service Worker script loaded');

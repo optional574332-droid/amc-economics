@@ -20,6 +20,7 @@
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px);} to {opacity:1;transform:translateY(0);} }
   .pulse-live { animation: pulse 1.8s infinite; }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.45;} }
+  .pin-timer { font-size: 14px; }
 </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 min-h-screen pb-20">
@@ -98,10 +99,11 @@
       <button onclick="logout()" class="bg-red-100 text-red-600 px-3 py-1 rounded-lg text-sm">লগআউট</button>
     </div>
     <div class="flex gap-2 mb-6 flex-wrap text-sm">
-      <button onclick="showAdminTab('manageTeacher')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg btn-pop">শিক্ষক ব্যবস্থাপনা</button>
-      <button onclick="showAdminTab('manageStudent')" class="bg-emerald-500 text-white px-4 py-2 rounded-lg btn-pop">ছাত্র ব্যবস্থাপনা</button>
+      <button onclick="showAdminTab('manageTeacher')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg btn-pop">শিক্ষক</button>
+      <button onclick="showAdminTab('manageStudent')" class="bg-emerald-500 text-white px-4 py-2 rounded-lg btn-pop">ছাত্র</button>
       <button onclick="showAdminTab('mapCourse')" class="bg-cyan-500 text-white px-4 py-2 rounded-lg btn-pop">কোর্স ম্যাপিং</button>
       <button onclick="showAdminTab('reports')" class="bg-amber-500 text-white px-4 py-2 rounded-lg btn-pop">রিপোর্ট</button>
+      <button onclick="showAdminTab('sessionMgmt')" class="bg-rose-500 text-white px-4 py-2 rounded-lg btn-pop">সেশন</button>
       <button onclick="showAdminTab('notice')" class="bg-pink-500 text-white px-4 py-2 rounded-lg btn-pop">নোটিশ</button>
     </div>
     <div id="adminContent"></div>
@@ -158,10 +160,53 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentTeacher = null;
 let currentStudent = null;
 let currentPinSession = null;
+let liveChannel = null;
+let pinTimerInterval = null;
+
 let deviceId = localStorage.getItem('amc_device_id');
 if (!deviceId) {
   deviceId = 'dev_' + Math.random().toString(36).slice(2) + Date.now();
   localStorage.setItem('amc_device_id', deviceId);
+}
+
+// ============================================================
+// 🔤 বাংলা ফন্ট লোডার
+// ============================================================
+let banglaFontLoaded = false;
+let banglaFontBase64 = null;
+
+async function loadBanglaFont() {
+  if (banglaFontLoaded) return banglaFontBase64;
+  try {
+    const response = await fetch(
+      'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/hindsiliguri/HindSiliguri-Regular.ttf'
+    );
+    if (!response.ok) return null;
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    banglaFontBase64 = btoa(binary);
+    banglaFontLoaded = true;
+    console.log('✅ বাংলা ফন্ট লোড হয়েছে');
+    return banglaFontBase64;
+  } catch (err) {
+    console.log('⚠️ বাংলা ফন্ট লোড ব্যর্থ:', err.message);
+    return null;
+  }
+}
+
+async function setupBanglaFont(doc) {
+  const fontBase64 = await loadBanglaFont();
+  if (fontBase64) {
+    try {
+      doc.addFileToVFS('HindSiliguri-Regular.ttf', fontBase64);
+      doc.addFont('HindSiliguri-Regular.ttf', 'HindSiliguri', 'normal');
+      doc.setFont('HindSiliguri');
+      return true;
+    } catch (err) { return false; }
+  }
+  return false;
 }
 
 // XSS নিরাপত্তা
@@ -185,6 +230,7 @@ const sessionDatalist = `
 
 // সেকশন পরিবর্তন
 function showSection(id) {
+  if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
   document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
   const t = document.getElementById(id + 'Section');
   if (t) { t.classList.remove('hidden'); t.classList.add('fade-in'); }
@@ -192,7 +238,7 @@ function showSection(id) {
 }
 
 // ============================================================
-// ছাত্রের হাজিরা (PIN) — Live Name Preview সহ
+// ছাত্রের হাজিরা (PIN) — Live Preview সহ
 // ============================================================
 async function submitPin() {
   const pin = document.getElementById('homePinInput').value.trim();
@@ -200,6 +246,7 @@ async function submitPin() {
 
   const { data: sessions } = await db.from('attendance_sessions')
     .select('*').eq('pin', pin)
+    .eq('is_active', true)
     .gte('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false }).limit(1);
 
@@ -252,7 +299,7 @@ async function previewStudent(suffix) {
 
   const s = currentPinSession;
   const { data: students } = await db.from('students')
-    .select('*')
+    .select('id, name, class_roll, reg_no')
     .eq('session', s.session).eq('year', s.year)
     .eq('status', 'active')
     .or(`class_roll.ilike.%${suffix},reg_no.ilike.%${suffix}`);
@@ -365,9 +412,14 @@ async function adminLogin() {
 }
 
 async function logout() {
+  if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
   await db.auth.signOut();
   currentTeacher = null;
   currentStudent = null;
+  if (liveChannel) {
+    await db.removeChannel(liveChannel);
+    liveChannel = null;
+  }
   showSection('home');
 }
 
@@ -384,14 +436,12 @@ function showAdminTab(tab) {
       ${sessionDatalist}
       <div class="space-y-4 max-w-2xl">
         <h3 class="text-lg font-bold">👨‍🏫 শিক্ষক ব্যবস্থাপনা</h3>
-
         <div class="bg-indigo-50 p-4 rounded-xl">
           <h4 class="font-bold text-sm mb-3">➕ নতুন শিক্ষক যোগ করুন</h4>
           <input id="ntName" placeholder="শিক্ষকের পূর্ণ নাম" class="w-full border-2 rounded-xl p-3 mb-2">
           <input id="ntPin" placeholder="PIN (৪-৬ ডিজিট)" inputmode="numeric" class="w-full border-2 rounded-xl p-3 mb-3">
           <button onclick="addTeacher()" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">সংরক্ষণ করুন</button>
         </div>
-
         <div>
           <h4 class="font-bold text-sm mb-3">📋 বর্তমান শিক্ষক তালিকা</h4>
           <div id="teacherList" class="space-y-2"></div>
@@ -408,6 +458,7 @@ function showAdminTab(tab) {
           <button onclick="showStudentSubTab('addExcel')" class="bg-emerald-500 text-white px-3 py-2 rounded-lg">📂 Excel আপলোড</button>
           <button onclick="showStudentSubTab('addManual')" class="bg-blue-500 text-white px-3 py-2 rounded-lg">✍️ ম্যানুয়ালি যোগ</button>
           <button onclick="showStudentSubTab('list')" class="bg-purple-500 text-white px-3 py-2 rounded-lg">📋 ছাত্র তালিকা</button>
+          <button onclick="showStudentSubTab('bulkUpdate')" class="bg-orange-500 text-white px-3 py-2 rounded-lg">🔄 Bulk Update</button>
         </div>
         <div id="studentSubContent"></div>
       </div>`;
@@ -424,7 +475,8 @@ function showAdminTab(tab) {
           list="sessionOptions"
           class="w-full border-2 rounded-xl p-3">
         <select id="mapYear" class="w-full border-2 rounded-xl p-3">${yearOpts}</select>
-        <input id="mapCourse" placeholder="কোর্স কোড (যেমন: ECON101)" class="w-full border-2 rounded-xl p-3">
+        <input id="mapCourse" placeholder="কোর্স কোড (যেমন: 2201)" class="w-full border-2 rounded-xl p-3">
+        <input id="mapCourseName" placeholder="কোর্সের সংক্ষিপ্ত নাম (যেমন: Mic, Mac)" class="w-full border-2 rounded-xl p-3">
         <button onclick="saveMapping()" class="bg-cyan-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">সংরক্ষণ</button>
         <div id="mappingList" class="mt-4"></div>
       </div>`;
@@ -436,25 +488,27 @@ function showAdminTab(tab) {
       ${sessionDatalist}
       <div class="space-y-4">
         <h3 class="text-lg font-bold">📊 রিপোর্ট</h3>
-        <div class="flex gap-2 flex-wrap">
-          <input id="rpSession" placeholder="সেশন (ঐচ্ছিক)" list="sessionOptions"
-            class="border-2 rounded-xl p-2">
-          <select id="rpYear" class="border-2 rounded-xl p-2">
-            <option value="">সব ইয়ার</option>${yearOpts}
-          </select>
-          <select id="rpStatus" class="border-2 rounded-xl p-2">
-            <option value="active">✅ সক্রিয়</option>
-            <option value="">সব স্ট্যাটাস</option>
-            <option value="tc">📤 টিসি</option>
-            <option value="inactive">❌ নিষ্ক্রিয়</option>
-            <option value="graduated">🎓 গ্র্যাজুয়েটেড</option>
-          </select>
-          <button onclick="loadReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">দেখুন</button>
-          <button onclick="exportExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop">📊 Excel</button>
-          <button onclick="exportPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop">📄 PDF</button>
+        <div class="flex gap-2 flex-wrap text-xs">
+          <button onclick="showReportTab('attendance')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg">📋 হাজিরা রিপোর্ট</button>
+          <button onclick="showReportTab('exam')" class="bg-amber-500 text-white px-4 py-2 rounded-lg">📝 পরীক্ষার নম্বর</button>
+          <button onclick="showReportTab('individual')" class="bg-pink-500 text-white px-4 py-2 rounded-lg">🎓 ব্যক্তিগত</button>
         </div>
-        <div id="reportArea"></div>
+        <div id="reportContent"></div>
       </div>`;
+    showReportTab('attendance');
+  }
+  else if (tab === 'sessionMgmt') {
+    el.innerHTML = `
+      ${sessionDatalist}
+      <div class="space-y-4">
+        <h3 class="text-lg font-bold">📅 সেশন ব্যবস্থাপনা</h3>
+        <p class="text-sm text-gray-500">পুরনো সেশন আর্কাইভ বা মুছে ফেলুন</p>
+        <div class="bg-red-50 p-4 rounded-xl mb-4">
+          <p class="text-xs text-red-700">⚠️ Archive করলে ডাটা থাকবে কিন্তু রিপোর্টে দেখাবে না। Delete করলে সম্পূর্ণ মুছে যাবে।</p>
+        </div>
+        <div id="sessionListArea"></div>
+      </div>`;
+    loadSessionList();
   }
   else if (tab === 'notice') {
     el.innerHTML = `
@@ -511,18 +565,21 @@ async function loadTeachers() {
       </div>
       ${!t.is_admin ? `
         <div class="flex gap-1">
-          <button onclick="editTeacher('${t.id}', '${escapeHtml(t.name)}')" 
-            class="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold">
-            ✏️ এডিট
-          </button>
-          <button onclick="deleteTeacher('${t.id}', '${escapeHtml(t.name)}')" 
-            class="bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold">
-            🗑️ মুছুন
-          </button>
+          <button class="edit-teacher-btn bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold"
+            data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">✏️ এডিট</button>
+          <button class="delete-teacher-btn bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold"
+            data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">🗑️ মুছুন</button>
         </div>
       ` : '<span class="text-xs text-gray-400">সুরক্ষিত</span>'}
     </div>
   `).join('');
+
+  el.querySelectorAll('.edit-teacher-btn').forEach(btn => {
+    btn.addEventListener('click', () => editTeacher(btn.dataset.id, btn.dataset.name));
+  });
+  el.querySelectorAll('.delete-teacher-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteTeacher(btn.dataset.id, btn.dataset.name));
+  });
 }
 
 function editTeacher(teacherId, currentName) {
@@ -536,49 +593,34 @@ function editTeacher(teacherId, currentName) {
     <input id="editTeacherName" value="${escapeHtml(currentName)}"
       class="w-full border-2 rounded-xl p-3 mb-3 focus:border-indigo-500 focus:outline-none">
     <div id="editTeacherStatus" class="text-sm mb-3"></div>
-    <button onclick="saveTeacherEdit('${teacherId}')"
-      class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">
-      💾 সংরক্ষণ করুন
-    </button>
+    <button id="saveTeacherEditBtn"
+      class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">💾 সংরক্ষণ করুন</button>
     <button onclick="closeModal()" class="w-full mt-2 text-gray-500 py-2 text-sm">বাতিল</button>
   `;
   modal.classList.remove('hidden');
+  document.getElementById('saveTeacherEditBtn').addEventListener('click', () => saveTeacherEdit(teacherId));
   document.getElementById('editTeacherName').focus();
 }
 
 async function saveTeacherEdit(teacherId) {
   const newName = document.getElementById('editTeacherName').value.trim();
   const status = document.getElementById('editTeacherStatus');
-
-  if (!newName) {
-    status.innerHTML = '<p class="text-red-500">❌ নাম দিন</p>';
-    return;
-  }
-
+  if (!newName) { status.innerHTML = '<p class="text-red-500">❌ নাম দিন</p>'; return; }
   status.innerHTML = '<p class="text-gray-500">⏳ সেভ হচ্ছে...</p>';
-
   const nameSlug = newName.toLowerCase().replace(/\s+/g, '_');
-
   const { error } = await db.from('teachers')
     .update({ name: newName, name_slug: nameSlug })
     .eq('id', teacherId);
-
-  if (error) {
-    status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
-    return;
-  }
-
+  if (error) { status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`; return; }
   closeModal();
-  alert('✅ শিক্ষকের নাম আপডেট হয়েছে');
+  alert('✅ আপডেট হয়েছে');
   loadTeachers();
 }
 
 async function deleteTeacher(id, name) {
-  if (!confirm(`"${name}" কে মুছবেন?\n\nসতর্কতা: তার সব কোর্স ম্যাপিংও মুছে যাবে।`)) return;
-
+  if (!confirm(`"${name}" কে মুছবেন?`)) return;
   const { error } = await db.from('teachers').delete().eq('id', id);
   if (error) return alert('❌ ' + error.message);
-
   alert('🗑️ মুছে ফেলা হয়েছে');
   loadTeachers();
 }
@@ -596,39 +638,33 @@ function showStudentSubTab(subTab) {
       <div class="space-y-4 max-w-lg">
         <div class="bg-emerald-50 p-4 rounded-xl">
           <h4 class="font-bold text-sm mb-3">📂 Excel ফাইল দিয়ে ছাত্র যোগ</h4>
-          <input id="asSession" placeholder="সেশন (যেমন: 2024-25)" 
-            list="sessionOptions"
-            class="w-full border-2 rounded-xl p-3 mb-2">
+          <input id="asSession" placeholder="সেশন" list="sessionOptions" class="w-full border-2 rounded-xl p-3 mb-2">
           <select id="asYear" class="w-full border-2 rounded-xl p-3 mb-2">${yearOpts}</select>
           <input type="file" id="excelFile" accept=".xlsx,.xls" class="w-full text-sm mb-2">
-          <p class="text-xs text-gray-500 mb-2">
-            Excel ফাইলে কলাম: <b>Class Roll | Reg No | Name</b>
-          </p>
+          <p class="text-xs text-gray-500 mb-2">Excel কলাম: <b>Class Roll | Reg No | Name</b></p>
           <div class="flex gap-2">
-            <button onclick="uploadExcel()" class="flex-1 bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold btn-pop">আপলোড</button>
-            <button onclick="downloadExcelTemplate()" class="bg-gray-500 text-white px-4 py-3 rounded-xl font-bold btn-pop text-xs">📥 টেম্পলেট</button>
+            <button onclick="previewExcel()" class="flex-1 bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold btn-pop">🔍 যাচাই</button>
+            <button onclick="downloadExcelTemplate()" class="bg-gray-500 text-white px-4 py-3 rounded-xl font-bold btn-pop text-xs">📥 টেমপ্লেট</button>
           </div>
         </div>
-        <div id="uploadStatus" class="text-sm"></div>
+        <div id="excelPreviewArea"></div>
       </div>`;
   }
   else if (subTab === 'addManual') {
     el.innerHTML = `
       <div class="space-y-3 max-w-lg">
         <div class="bg-blue-50 p-4 rounded-xl">
-          <h4 class="font-bold text-sm mb-3">✍️ একজন ছাত্র ম্যানুয়ালি যোগ করুন</h4>
-          <input id="msSession" placeholder="সেশন (যেমন: 2024-25)" 
-            list="sessionOptions"
-            class="w-full border-2 rounded-xl p-3 mb-2">
+          <h4 class="font-bold text-sm mb-3">✍️ ম্যানুয়ালি ছাত্র যোগ</h4>
+          <input id="msSession" placeholder="সেশন" list="sessionOptions" class="w-full border-2 rounded-xl p-3 mb-2">
           <select id="msYear" class="w-full border-2 rounded-xl p-3 mb-2">${yearOpts}</select>
           <input id="msRoll" placeholder="ক্লাস রোল *" class="w-full border-2 rounded-xl p-3 mb-2">
           <input id="msReg" placeholder="রেজি নম্বর" class="w-full border-2 rounded-xl p-3 mb-2">
           <input id="msName" placeholder="ছাত্রের নাম *" class="w-full border-2 rounded-xl p-3 mb-2">
-          <input id="msPhone" placeholder="মোবাইল নম্বর (ঐচ্ছিক)" class="w-full border-2 rounded-xl p-3 mb-2">
+          <input id="msPhone" placeholder="মোবাইল (ঐচ্ছিক)" class="w-full border-2 rounded-xl p-3 mb-2">
           <input id="msGuardian" placeholder="অভিভাবকের নাম (ঐচ্ছিক)" class="w-full border-2 rounded-xl p-3 mb-2">
           <input id="msGuardianPhone" placeholder="অভিভাবকের ফোন (ঐচ্ছিক)" class="w-full border-2 rounded-xl p-3 mb-2">
           <textarea id="msAddress" placeholder="ঠিকানা (ঐচ্ছিক)" rows="2" class="w-full border-2 rounded-xl p-3 mb-3"></textarea>
-          <button onclick="addStudentManual()" class="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">সংরক্ষণ করুন</button>
+          <button onclick="addStudentManual()" class="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">সংরক্ষণ</button>
         </div>
         <div id="manualStatus" class="text-sm"></div>
       </div>`;
@@ -638,8 +674,7 @@ function showStudentSubTab(subTab) {
       <div class="space-y-3">
         <div class="bg-gray-50 p-3 rounded-xl">
           <div class="flex gap-2 flex-wrap">
-            <input id="lstSession" placeholder="সেশন" list="sessionOptions"
-              class="border-2 rounded-xl p-2 text-sm">
+            <input id="lstSession" placeholder="সেশন" list="sessionOptions" class="border-2 rounded-xl p-2 text-sm">
             <select id="lstYear" class="border-2 rounded-xl p-2 text-sm">
               <option value="">সব ইয়ার</option>${yearOpts}
             </select>
@@ -650,14 +685,28 @@ function showStudentSubTab(subTab) {
               <option value="graduated">🎓 গ্র্যাজুয়েটেড</option>
               <option value="">সব</option>
             </select>
-            <input id="lstSearch" placeholder="নাম/রোল খুঁজুন" 
-              class="border-2 rounded-xl p-2 text-sm flex-1">
+            <input id="lstSearch" placeholder="নাম/রোল" class="border-2 rounded-xl p-2 text-sm flex-1">
             <button onclick="loadStudentList()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm">খুঁজুন</button>
           </div>
         </div>
         <div id="studentListArea"></div>
       </div>`;
     loadStudentList();
+  }
+  else if (subTab === 'bulkUpdate') {
+    el.innerHTML = `
+      <div class="space-y-4 max-w-lg">
+        <div class="bg-orange-50 p-4 rounded-xl">
+          <h4 class="font-bold text-sm mb-3">🔄 Excel দিয়ে Bulk Update</h4>
+          <p class="text-xs text-gray-600 mb-3">প্রথম বর্ষে রেজি নম্বর আসলে বা রোল পরিবর্তন হলে এই অপশন ব্যবহার করুন।</p>
+          <p class="text-xs text-gray-700 mb-3"><b>নিয়ম:</b> Excel-এ Class Roll দিয়ে ছাত্র চেনা হবে। রেজি ও নাম আপডেট হবে।</p>
+          <input id="buSession" placeholder="সেশন" list="sessionOptions" class="w-full border-2 rounded-xl p-3 mb-2">
+          <select id="buYear" class="w-full border-2 rounded-xl p-3 mb-2">${yearOpts}</select>
+          <input type="file" id="bulkFile" accept=".xlsx,.xls" class="w-full text-sm mb-3">
+          <button onclick="bulkUpdateStudents()" class="w-full bg-orange-600 text-white px-6 py-3 rounded-xl font-bold btn-pop">🔄 আপডেট করুন</button>
+        </div>
+        <div id="bulkStatus" class="text-sm"></div>
+      </div>`;
   }
 }
 
@@ -674,20 +723,21 @@ function downloadExcelTemplate() {
   XLSX.writeFile(wb, 'student_template.xlsx');
 }
 
-async function uploadExcel() {
+// ============================================================
+// Excel Preview
+// ============================================================
+let pendingExcelStudents = null;
+
+async function previewExcel() {
   const file = document.getElementById('excelFile')?.files[0];
   if (!file) return alert('ফাইল সিলেক্ট করুন');
 
-  const status = document.getElementById('uploadStatus');
-  status.textContent = '⏳ প্রসেস হচ্ছে...';
+  const area = document.getElementById('excelPreviewArea');
+  area.innerHTML = '<p class="text-center py-4">⏳ প্রসেস হচ্ছে...</p>';
 
   const session = document.getElementById('asSession').value.trim();
   const year = document.getElementById('asYear').value;
-
-  if (!session) {
-    status.innerHTML = '<p class="text-red-500">❌ সেশন লিখুন</p>';
-    return;
-  }
+  if (!session) { area.innerHTML = '<p class="text-red-500 text-center">❌ সেশন লিখুন</p>'; return; }
 
   const reader = new FileReader();
   reader.onload = async (e) => {
@@ -696,36 +746,114 @@ async function uploadExcel() {
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-      const students = rows.slice(1).map(r => ({
-        session, year,
-        class_roll: String(r[0] || '').trim(),
-        reg_no: String(r[1] || '').trim() || null,
-        name: String(r[2] || '').trim(),
-        status: 'active'
-      })).filter(s => s.name && s.class_roll);
+      const valid = [];
+      const duplicatesInFile = [];
+      const invalidRows = [];
+      const seenRolls = new Set();
+      const seenRegs = new Set();
 
-      if (!students.length) {
-        status.innerHTML = '<p class="text-red-500">❌ কোনো ডাটা পাওয়া যায়নি</p>';
-        return;
-      }
+      rows.slice(1).forEach((r, idx) => {
+        const rowNum = idx + 2;
+        const roll = String(r[0] || '').trim();
+        const reg = String(r[1] || '').trim();
+        const name = String(r[2] || '').trim();
 
-      const { error } = await db.from('students').insert(students);
-
-      if (error) {
-        if (error.message.includes('duplicate')) {
-          status.innerHTML = '<p class="text-amber-600">⚠️ কিছু ছাত্র আগেই আছে — সেগুলো বাদ পড়েছে</p>';
-        } else {
-          status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
+        if (!roll || !name) {
+          invalidRows.push({ row: rowNum, reason: 'রোল বা নাম নেই' });
+          return;
         }
-        return;
+        if (seenRolls.has(roll)) {
+          duplicatesInFile.push({ row: rowNum, roll, reason: 'একই রোল' });
+          return;
+        }
+        if (reg && seenRegs.has(reg)) {
+          duplicatesInFile.push({ row: rowNum, roll, reg, reason: 'একই রেজি' });
+          return;
+        }
+        seenRolls.add(roll);
+        if (reg) seenRegs.add(reg);
+        valid.push({ session, year, class_roll: roll, reg_no: reg || null, name, status: 'active' });
+      });
+
+      let existsInDB = [];
+      if (valid.length > 0) {
+        const rolls = valid.map(v => v.class_roll);
+        const { data: existing } = await db.from('students')
+          .select('class_roll').eq('session', session).eq('year', year).in('class_roll', rolls);
+        if (existing) {
+          const existingRolls = new Set(existing.map(e => e.class_roll));
+          existsInDB = valid.filter(v => existingRolls.has(v.class_roll));
+        }
       }
 
-      status.innerHTML = `<p class="text-emerald-600 font-bold">✅ ${students.length} জন সফলভাবে যোগ হয়েছে</p>`;
+      const dbExistingRolls = new Set(existsInDB.map(e => e.class_roll));
+      const finalValid = valid.filter(v => !dbExistingRolls.has(v.class_roll));
+      pendingExcelStudents = finalValid;
+
+      area.innerHTML = `
+        <div class="bg-white border-2 border-indigo-200 rounded-xl p-4 space-y-3">
+          <h4 class="font-bold text-sm text-gray-700">📊 Excel যাচাই রিপোর্ট</h4>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div class="bg-emerald-50 p-2 rounded-lg">
+              <p class="text-emerald-700 font-bold text-xs">✅ সঠিক</p>
+              <p class="text-2xl font-bold text-emerald-800">${finalValid.length}</p>
+            </div>
+            <div class="bg-amber-50 p-2 rounded-lg">
+              <p class="text-amber-700 font-bold text-xs">⚠️ Duplicate</p>
+              <p class="text-2xl font-bold text-amber-800">${duplicatesInFile.length}</p>
+            </div>
+            <div class="bg-red-50 p-2 rounded-lg">
+              <p class="text-red-700 font-bold text-xs">❌ Invalid</p>
+              <p class="text-2xl font-bold text-red-800">${invalidRows.length}</p>
+            </div>
+            <div class="bg-orange-50 p-2 rounded-lg">
+              <p class="text-orange-700 font-bold text-xs">🔁 DB-তে আছে</p>
+              <p class="text-2xl font-bold text-orange-800">${existsInDB.length}</p>
+            </div>
+          </div>
+          ${duplicatesInFile.length > 0 ? `
+            <details class="text-xs bg-amber-50 p-2 rounded-lg">
+              <summary class="font-bold cursor-pointer">⚠️ Duplicate দেখুন</summary>
+              <ul class="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                ${duplicatesInFile.map(d => `<li>লাইন ${d.row}: রোল ${escapeHtml(d.roll)} — ${escapeHtml(d.reason)}</li>`).join('')}
+              </ul>
+            </details>` : ''}
+          ${invalidRows.length > 0 ? `
+            <details class="text-xs bg-red-50 p-2 rounded-lg">
+              <summary class="font-bold cursor-pointer">❌ Invalid দেখুন</summary>
+              <ul class="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                ${invalidRows.map(d => `<li>লাইন ${d.row}: ${escapeHtml(d.reason)}</li>`).join('')}
+              </ul>
+            </details>` : ''}
+          ${finalValid.length > 0 ? `
+            <button id="confirmExcelImportBtn" class="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold btn-pop">
+              ✅ ${finalValid.length} জন যোগ করুন
+            </button>` : `
+            <p class="text-center text-red-500 text-sm">যোগ করার মতো ডাটা নেই</p>`}
+        </div>`;
+      const confirmBtn = document.getElementById('confirmExcelImportBtn');
+      if (confirmBtn) confirmBtn.addEventListener('click', () => confirmExcelImport(confirmBtn));
     } catch (err) {
-      status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(err.message)}</p>`;
+      area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`;
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+async function confirmExcelImport(btn) {
+  if (!pendingExcelStudents || !pendingExcelStudents.length) return alert('ডাটা নেই');
+  btn.disabled = true;
+  btn.textContent = '⏳ যোগ করা হচ্ছে...';
+  const { error } = await db.from('students').insert(pendingExcelStudents);
+  if (error) {
+    btn.disabled = false;
+    btn.textContent = 'আবার চেষ্টা';
+    return alert('❌ ' + error.message);
+  }
+  alert(`✅ ${pendingExcelStudents.length} জন যোগ হয়েছে`);
+  pendingExcelStudents = null;
+  document.getElementById('excelPreviewArea').innerHTML = '';
+  document.getElementById('excelFile').value = '';
 }
 
 async function addStudentManual() {
@@ -747,25 +875,77 @@ async function addStudentManual() {
 
   const { error } = await db.from('students').insert({
     session, year, class_roll: roll, reg_no: reg || null,
-    name, phone: phone || null,
-    guardian_name: guardian || null,
-    guardian_phone: gPhone || null,
-    address: address || null,
-    status: 'active'
+    name, phone: phone || null, guardian_name: guardian || null,
+    guardian_phone: gPhone || null, address: address || null, status: 'active'
   });
 
   if (error) {
     if (error.message.includes('duplicate')) {
-      status.innerHTML = '<p class="text-amber-600">⚠️ এই রোল আগেই আছে</p>';
+      status.innerHTML = '<p class="text-amber-600">⚠️ রোল আগেই আছে</p>';
     } else {
       status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
     }
     return;
   }
-
-  status.innerHTML = '<p class="text-emerald-600 font-bold">✅ ছাত্র যোগ হয়েছে</p>';
+  status.innerHTML = '<p class="text-emerald-600 font-bold">✅ যোগ হয়েছে</p>';
   ['msRoll','msReg','msName','msPhone','msGuardian','msGuardianPhone','msAddress']
     .forEach(id => document.getElementById(id).value = '');
+}
+
+// ============================================================
+// Bulk Update
+// ============================================================
+async function bulkUpdateStudents() {
+  const file = document.getElementById('bulkFile')?.files[0];
+  if (!file) return alert('ফাইল সিলেক্ট করুন');
+  const status = document.getElementById('bulkStatus');
+  const session = document.getElementById('buSession').value.trim();
+  const year = document.getElementById('buYear').value;
+  if (!session) { status.innerHTML = '<p class="text-red-500">❌ সেশন লিখুন</p>'; return; }
+
+  status.innerHTML = '<p class="text-gray-500">⏳ প্রসেস হচ্ছে...</p>';
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      const updates = rows.slice(1).map(r => ({
+        class_roll: String(r[0] || '').trim(),
+        reg_no: String(r[1] || '').trim(),
+        name: String(r[2] || '').trim()
+      })).filter(u => u.class_roll);
+
+      if (!updates.length) {
+        status.innerHTML = '<p class="text-red-500">❌ কোনো ডাটা নেই</p>';
+        return;
+      }
+
+      const { data, error } = await db.rpc('bulk_update_students', {
+        p_session: session, p_year: year, p_updates: updates
+      });
+
+      if (error) {
+        status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
+        return;
+      }
+
+      status.innerHTML = `
+        <div class="bg-emerald-50 p-4 rounded-xl">
+          <p class="font-bold text-emerald-700 mb-2">✅ Bulk Update সম্পন্ন</p>
+          <p class="text-sm">✓ সফল: ${data.updated} জন</p>
+          <p class="text-sm">✗ পাওয়া যায়নি: ${data.not_found} জন</p>
+          ${data.not_found_list && data.not_found_list.length > 0 
+            ? `<p class="text-xs text-gray-500 mt-2">পাওয়া যায়নি: ${data.not_found_list.join(', ')}</p>` 
+            : ''}
+        </div>`;
+    } catch (err) {
+      status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(err.message)}</p>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 async function loadStudentList() {
@@ -774,16 +954,16 @@ async function loadStudentList() {
   const status = document.getElementById('lstStatus')?.value;
   const search = document.getElementById('lstSearch')?.value.trim().toLowerCase();
 
-  let q = db.from('students').select('*').order('class_roll');
+  let q = db.from('students')
+    .select('id, session, year, class_roll, reg_no, name, status, phone')
+    .order('class_roll');
   if (session) q = q.eq('session', session);
   if (year) q = q.eq('year', year);
   if (status) q = q.eq('status', status);
 
   const { data, error } = await q;
-
   if (error) {
-    document.getElementById('studentListArea').innerHTML =
-      `<p class="text-red-500">❌ ${error.message}</p>`;
+    document.getElementById('studentListArea').innerHTML = `<p class="text-red-500">❌ ${error.message}</p>`;
     return;
   }
 
@@ -802,12 +982,9 @@ async function loadStudentList() {
     return;
   }
 
-  const statusIcon = {
-    active: '✅', tc: '📤', inactive: '❌',
-    graduated: '🎓', suspended: '⛔'
-  };
-
-  document.getElementById('studentListArea').innerHTML = `
+  const statusIcon = { active: '✅', tc: '📤', inactive: '❌', graduated: '🎓', suspended: '⛔' };
+  const area = document.getElementById('studentListArea');
+  area.innerHTML = `
     <p class="text-sm text-gray-500 mb-2">মোট: ${students.length} জন</p>
     <div class="overflow-y-auto max-h-[500px] space-y-2">
       ${students.map(s => `
@@ -818,79 +995,154 @@ async function loadStudentList() {
               <b class="text-sm">${escapeHtml(s.name)}</b>
             </div>
             <p class="text-xs text-gray-500 truncate">
-              রোল: ${escapeHtml(s.class_roll)} · 
-              রেজি: ${escapeHtml(s.reg_no || '-')} · 
+              রোল: ${escapeHtml(s.class_roll)} · রেজি: ${escapeHtml(s.reg_no || '-')} · 
               ${escapeHtml(s.session)} · ${escapeHtml(s.year)}
             </p>
           </div>
-          <button onclick="showStudentActions('${s.id}', '${escapeHtml(s.name)}')" 
-            class="bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-xs">⚙️</button>
+          <button class="student-action-btn bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-xs"
+            data-id="${escapeHtml(s.id)}">⚙️</button>
         </div>
       `).join('')}
     </div>`;
+
+  area.querySelectorAll('.student-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => showStudentActions(btn.dataset.id));
+  });
 }
 
-function showStudentActions(studentId, studentName) {
+// ============================================================
+// ছাত্র Edit + Actions
+// ============================================================
+async function showStudentActions(studentId) {
+  const { data: stu, error } = await db.from('students')
+    .select('*').eq('id', studentId).single();
+
+  if (error || !stu) return alert('ছাত্র পাওয়া যায়নি');
+
+  const modal = document.getElementById('attendanceModal');
+  const content = document.getElementById('modalContent');
+  content.innerHTML = `
+    <h3 class="text-lg font-bold text-gray-800 mb-3">${escapeHtml(stu.name)}</h3>
+    <p class="text-xs text-gray-500 mb-4">
+      রোল: ${escapeHtml(stu.class_roll)} · রেজি: ${escapeHtml(stu.reg_no || '-')}
+    </p>
+    
+    <div class="grid grid-cols-2 gap-2 mb-4">
+      <button class="action-edit bg-blue-500 text-white py-2.5 rounded-lg text-sm font-bold btn-pop">✏️ তথ্য পরিবর্তন</button>
+      <button class="action-status bg-amber-500 text-white py-2.5 rounded-lg text-sm font-bold btn-pop" data-status="tc">📤 টিসি</button>
+      <button class="action-status bg-gray-500 text-white py-2.5 rounded-lg text-sm font-bold btn-pop" data-status="inactive">❌ নিষ্ক্রিয়</button>
+      <button class="action-status bg-emerald-500 text-white py-2.5 rounded-lg text-sm font-bold btn-pop" data-status="graduated">🎓 গ্র্যাজুয়েটেড</button>
+      <button class="action-status bg-blue-500 text-white py-2.5 rounded-lg text-sm font-bold btn-pop col-span-2" data-status="active">✅ পুনরায় সক্রিয়</button>
+    </div>
+    
+    <hr class="my-3">
+    <button class="action-delete w-full bg-red-600 text-white py-3 rounded-xl font-bold btn-pop">🗑️ স্থায়ীভাবে মুছুন</button>
+    <button onclick="closeModal()" class="w-full mt-2 text-gray-500 py-2 text-sm">বাতিল</button>
+  `;
+  modal.classList.remove('hidden');
+
+  content.querySelector('.action-edit').addEventListener('click', () => editStudent(stu));
+  content.querySelectorAll('.action-status').forEach(btn => {
+    btn.addEventListener('click', () => changeStudentStatus(studentId, btn.dataset.status));
+  });
+  content.querySelector('.action-delete').addEventListener('click',
+    () => deleteStudentPermanently(studentId, stu.name));
+}
+
+function editStudent(stu) {
   const modal = document.getElementById('attendanceModal');
   document.getElementById('modalContent').innerHTML = `
-    <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(studentName)}</h3>
-    <p class="text-sm text-gray-500 mb-4">কী করতে চান?</p>
-    <div class="space-y-2">
-      <button onclick="changeStudentStatus('${studentId}', 'tc')"
-        class="w-full bg-amber-500 text-white py-3 rounded-xl font-bold btn-pop">
-        📤 টিসি নিয়ে চলে গেছে
-      </button>
-      <button onclick="changeStudentStatus('${studentId}', 'inactive')"
-        class="w-full bg-gray-500 text-white py-3 rounded-xl font-bold btn-pop">
-        ❌ নিষ্ক্রিয় করুন
-      </button>
-      <button onclick="changeStudentStatus('${studentId}', 'graduated')"
-        class="w-full bg-emerald-500 text-white py-3 rounded-xl font-bold btn-pop">
-        🎓 গ্র্যাজুয়েটেড
-      </button>
-      <button onclick="changeStudentStatus('${studentId}', 'active')"
-        class="w-full bg-blue-500 text-white py-3 rounded-xl font-bold btn-pop">
-        ✅ পুনরায় সক্রিয়
-      </button>
-      <hr class="my-2">
-      <button onclick="deleteStudentPermanently('${studentId}', '${escapeHtml(studentName)}')"
-        class="w-full bg-red-600 text-white py-3 rounded-xl font-bold btn-pop">
-        🗑️ স্থায়ীভাবে মুছুন
-      </button>
-      <button onclick="closeModal()" class="w-full text-gray-500 py-2 text-sm">বাতিল</button>
-    </div>`;
+    <h3 class="text-lg font-bold text-gray-800 mb-3">✏️ তথ্য পরিবর্তন</h3>
+    <p class="text-xs text-gray-500 mb-4">${escapeHtml(stu.session)} · ${escapeHtml(stu.year)}</p>
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">ক্লাস রোল *</label>
+    <input id="edRoll" value="${escapeHtml(stu.class_roll)}" class="w-full border-2 rounded-xl p-3 mb-2">
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">রেজিস্ট্রেশন নম্বর</label>
+    <input id="edReg" value="${escapeHtml(stu.reg_no || '')}" placeholder="নাহলে খালি রাখুন" class="w-full border-2 rounded-xl p-3 mb-2">
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">ছাত্রের নাম *</label>
+    <input id="edName" value="${escapeHtml(stu.name)}" class="w-full border-2 rounded-xl p-3 mb-2">
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">মোবাইল</label>
+    <input id="edPhone" value="${escapeHtml(stu.phone || '')}" class="w-full border-2 rounded-xl p-3 mb-2">
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">অভিভাবকের নাম</label>
+    <input id="edGuardian" value="${escapeHtml(stu.guardian_name || '')}" class="w-full border-2 rounded-xl p-3 mb-2">
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">অভিভাবকের ফোন</label>
+    <input id="edGuardianPhone" value="${escapeHtml(stu.guardian_phone || '')}" class="w-full border-2 rounded-xl p-3 mb-2">
+
+    <label class="block text-sm font-bold text-gray-700 mb-1">ঠিকানা</label>
+    <textarea id="edAddress" rows="2" class="w-full border-2 rounded-xl p-3 mb-3">${escapeHtml(stu.address || '')}</textarea>
+
+    <div id="editStudentStatus" class="text-sm mb-3"></div>
+
+    <button id="saveStudentEditBtn" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">
+      💾 সংরক্ষণ করুন
+    </button>
+    <button onclick="closeModal()" class="w-full mt-2 text-gray-500 py-2 text-sm">বাতিল</button>
+  `;
   modal.classList.remove('hidden');
+  document.getElementById('saveStudentEditBtn').addEventListener('click', () => saveStudentEdit(stu.id));
+}
+
+async function saveStudentEdit(studentId) {
+  const roll = document.getElementById('edRoll').value.trim();
+  const reg = document.getElementById('edReg').value.trim();
+  const name = document.getElementById('edName').value.trim();
+  const phone = document.getElementById('edPhone').value.trim();
+  const guardian = document.getElementById('edGuardian').value.trim();
+  const gPhone = document.getElementById('edGuardianPhone').value.trim();
+  const address = document.getElementById('edAddress').value.trim();
+  const status = document.getElementById('editStudentStatus');
+
+  if (!roll || !name) {
+    status.innerHTML = '<p class="text-red-500">❌ রোল ও নাম দিন</p>';
+    return;
+  }
+
+  status.innerHTML = '<p class="text-gray-500">⏳ সেভ হচ্ছে...</p>';
+
+  const { error } = await db.from('students')
+    .update({
+      class_roll: roll, reg_no: reg || null, name,
+      phone: phone || null, guardian_name: guardian || null,
+      guardian_phone: gPhone || null, address: address || null
+    })
+    .eq('id', studentId);
+
+  if (error) {
+    if (error.message.includes('duplicate')) {
+      status.innerHTML = '<p class="text-red-500">❌ এই রোল অন্য ছাত্রের আছে!</p>';
+    } else {
+      status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
+    }
+    return;
+  }
+
+  closeModal();
+  alert('✅ আপডেট হয়েছে');
+  loadStudentList();
 }
 
 async function changeStudentStatus(studentId, newStatus) {
-  const labels = {
-    active: 'সক্রিয়', tc: 'টিসি', inactive: 'নিষ্ক্রিয়',
-    graduated: 'গ্র্যাজুয়েটেড'
-  };
+  const labels = { active: 'সক্রিয়', tc: 'টিসি', inactive: 'নিষ্ক্রিয়', graduated: 'গ্র্যাজুয়েটেড' };
   if (!confirm(`"${labels[newStatus]}" হিসেবে মার্ক করবেন?`)) return;
-
   const updateData = { status: newStatus };
-  if (newStatus === 'tc') {
-    updateData.tc_date = new Date().toISOString().split('T')[0];
-  }
-
-  const { error } = await db.from('students')
-    .update(updateData).eq('id', studentId);
-
+  if (newStatus === 'tc') updateData.tc_date = new Date().toISOString().split('T')[0];
+  const { error } = await db.from('students').update(updateData).eq('id', studentId);
   if (error) return alert('❌ ' + error.message);
-
   closeModal();
-  alert(`✅ ${labels[newStatus]} হিসেবে মার্ক হয়েছে`);
+  alert(`✅ ${labels[newStatus]} মার্ক হয়েছে`);
   loadStudentList();
 }
 
 async function deleteStudentPermanently(studentId, name) {
-  if (!confirm(`⚠️ "${name}" কে স্থায়ীভাবে মুছবেন?\n\nএটি আর ফেরানো যাবে না!\nসমস্ত হাজিরা রেকর্ডও মুছে যাবে।`)) return;
-  if (!confirm('আপনি কি নিশ্চিত? শেষবার জিজ্ঞেস করছি।')) return;
-
+  if (!confirm(`⚠️ "${name}" কে মুছবেন?\n\nসমস্ত হাজিরা রেকর্ডও মুছে যাবে!`)) return;
+  if (!confirm('নিশ্চিত? শেষবার জিজ্ঞেস।')) return;
   const { error } = await db.from('students').delete().eq('id', studentId);
   if (error) return alert('❌ ' + error.message);
-
   closeModal();
   alert('🗑️ মুছে ফেলা হয়েছে');
   loadStudentList();
@@ -910,113 +1162,593 @@ async function saveMapping() {
   const session = document.getElementById('mapSession').value.trim();
   const year = document.getElementById('mapYear').value;
   const course_code = document.getElementById('mapCourse').value.trim().toUpperCase();
-  if (!teacher_id || !session || !course_code) return alert('সব তথ্য দিন');
+  const course_name = document.getElementById('mapCourseName').value.trim();
+  if (!teacher_id || !session || !course_code) return alert('শিক্ষক, সেশন ও কোর্স কোড দিন');
 
-  const { error } = await db.from('teacher_courses').insert({ 
-    teacher_id, session, year, course_code 
-  });
-  if (error && !error.message.includes('duplicate')) return alert(error.message);
+  const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code });
+  if (e1 && !e1.message.includes('duplicate')) return alert('❌ ' + e1.message);
+
+  const { error: e2 } = await db.from('courses').upsert({
+    session, year, course_code, course_name: course_name || null
+  }, { onConflict: 'session,year,course_code' });
+  if (e2) console.error('courses error:', e2);
+
   alert('✅ ম্যাপিং সংরক্ষিত');
   document.getElementById('mapCourse').value = '';
+  document.getElementById('mapCourseName').value = '';
   loadMappings();
 }
 
 async function loadMappings() {
   const { data } = await db.from('teacher_courses')
     .select('*, teachers(name)').order('created_at', { ascending: false }).limit(50);
-  document.getElementById('mappingList').innerHTML = data?.map(m =>
-    `<div class="bg-cyan-50 px-3 py-2 rounded-lg text-sm mb-1 flex justify-between items-center">
-      <span>${escapeHtml(m.teachers?.name)} → ${escapeHtml(m.course_code)}</span>
-      <span class="text-xs text-gray-500">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
-    </div>`).join('') || '<p class="text-gray-400 text-sm">কোনো ম্যাপিং নেই</p>';
+  if (!data || !data.length) {
+    document.getElementById('mappingList').innerHTML = '<p class="text-gray-400 text-sm">কোনো ম্যাপিং নেই</p>';
+    return;
+  }
+  const mappingHtml = await Promise.all(data.map(async m => {
+    const { data: course } = await db.from('courses')
+      .select('course_name').eq('session', m.session).eq('year', m.year)
+      .eq('course_code', m.course_code).maybeSingle();
+    const displayName = course?.course_name ? `${course.course_name}-${m.course_code}` : m.course_code;
+    return `
+      <div class="bg-cyan-50 px-3 py-2 rounded-lg text-sm mb-1 flex justify-between items-center">
+        <span>${escapeHtml(m.teachers?.name)} → <b>${escapeHtml(displayName)}</b></span>
+        <span class="text-xs text-gray-500">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
+      </div>`;
+  }));
+  document.getElementById('mappingList').innerHTML = mappingHtml.join('');
 }
 
 // ============================================================
-// REPORTS
+// REPORTS — 3 Types
 // ============================================================
-async function loadReport() {
-  const session = document.getElementById('rpSession').value.trim();
-  const year = document.getElementById('rpYear').value;
-  const status = document.getElementById('rpStatus').value;
+function showReportTab(tab) {
+  const el = document.getElementById('reportContent');
+  const yearOpts = ['1st','2nd','3rd','4th','Preliminary to Masters','Masters Final']
+    .map(y => `<option>${y}</option>`).join('');
 
-  let q = db.from('students').select('*').order('class_roll');
-  if (session) q = q.eq('session', session);
-  if (year) q = q.eq('year', year);
-  if (status) q = q.eq('status', status);
+  if (tab === 'attendance') {
+    el.innerHTML = `
+      <div class="space-y-3">
+        <div class="bg-gray-50 p-4 rounded-xl">
+          <div class="flex gap-2 flex-wrap mb-3">
+            <input id="arSession" placeholder="সেশন" list="sessionOptions" class="border-2 rounded-xl p-2 flex-1">
+            <select id="arYear" class="border-2 rounded-xl p-2">
+              <option value="">ইয়ার</option>${yearOpts}
+            </select>
+            <button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍 দেখুন</button>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="exportAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button>
+            <button onclick="exportAttendancePDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button>
+          </div>
+        </div>
+        <div id="attendanceReportArea"></div>
+      </div>`;
+  }
+  else if (tab === 'exam') {
+    el.innerHTML = `
+      <div class="space-y-3">
+        <div class="bg-gray-50 p-4 rounded-xl">
+          <div class="flex gap-2 flex-wrap mb-3">
+            <input id="erSession" placeholder="সেশন" list="sessionOptions" class="border-2 rounded-xl p-2">
+            <select id="erYear" class="border-2 rounded-xl p-2">
+              <option value="">ইয়ার</option>${yearOpts}
+            </select>
+            <input id="erCourse" placeholder="কোর্স (2201)" class="border-2 rounded-xl p-2">
+            <button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍 দেখুন</button>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="exportExamExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button>
+            <button onclick="exportExamPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button>
+          </div>
+        </div>
+        <div id="examReportArea"></div>
+      </div>`;
+  }
+  else if (tab === 'individual') {
+    el.innerHTML = `
+      <div class="space-y-3">
+        <div class="bg-gray-50 p-4 rounded-xl">
+          <div class="flex gap-2 flex-wrap mb-3">
+            <input id="irSession" placeholder="সেশন" list="sessionOptions" class="border-2 rounded-xl p-2">
+            <select id="irYear" class="border-2 rounded-xl p-2">
+              <option value="">ইয়ার</option>${yearOpts}
+            </select>
+            <input id="irRoll" placeholder="রোল / রেজি" class="border-2 rounded-xl p-2 flex-1">
+            <button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍 দেখুন</button>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="exportIndividualExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button>
+            <button onclick="exportIndividualPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button>
+          </div>
+        </div>
+        <div id="individualReportArea"></div>
+      </div>`;
+  }
+}
 
-  const { data } = await q;
+// ---------- Attendance Report ----------
+let currentAttendanceData = null;
 
-  const statusIcon = {
-    active: '✅', tc: '📤', inactive: '❌',
-    graduated: '🎓', suspended: '⛔'
-  };
+async function loadAttendanceReport() {
+  const session = document.getElementById('arSession').value.trim();
+  const year = document.getElementById('arYear').value;
+  const area = document.getElementById('attendanceReportArea');
 
-  document.getElementById('reportArea').innerHTML = `
-    <p class="font-bold mb-2">মোট: ${data?.length || 0} জন</p>
+  if (!session || !year) {
+    area.innerHTML = '<p class="text-red-500 text-center py-4">সেশন ও ইয়ার দিন</p>';
+    return;
+  }
+
+  area.innerHTML = '<p class="text-center py-4">⏳ লোড হচ্ছে...</p>';
+
+  try {
+    const { data: students } = await db.from('students')
+      .select('id, class_roll, reg_no, name')
+      .eq('session', session).eq('year', year).eq('status', 'active')
+      .order('class_roll');
+
+    if (!students || !students.length) {
+      area.innerHTML = '<p class="text-center text-gray-400 py-4">ছাত্র নেই</p>';
+      return;
+    }
+
+    const { data: courses } = await db.from('courses')
+      .select('*').eq('session', session).eq('year', year).order('course_code');
+
+    if (!courses || !courses.length) {
+      area.innerHTML = '<p class="text-center text-gray-400 py-4">কোর্স নেই</p>';
+      return;
+    }
+
+    const { data: sessions } = await db.from('attendance_sessions')
+      .select('id, course_code').eq('session', session).eq('year', year);
+
+    const sessionIds = sessions?.map(s => s.id) || [];
+    let records = [];
+    if (sessionIds.length > 0) {
+      const { data: recs } = await db.from('attendance_records')
+        .select('student_id, session_id, status').in('session_id', sessionIds);
+      records = recs || [];
+    }
+
+    const sessionMap = {};
+    sessions?.forEach(s => { sessionMap[s.id] = s.course_code; });
+
+    const report = students.map(stu => {
+      const courseCounts = {};
+      courses.forEach(c => { courseCounts[c.course_code] = 0; });
+      records.filter(r => r.student_id === stu.id).forEach(r => {
+        const code = sessionMap[r.session_id];
+        if (code && (r.status === 'present' || r.status === 'late')) {
+          courseCounts[code] = (courseCounts[code] || 0) + 1;
+        }
+      });
+      const total = Object.values(courseCounts).reduce((a, b) => a + b, 0);
+      return { class_roll: stu.class_roll, reg_no: stu.reg_no || '', name: stu.name, courseCounts, total };
+    });
+
+    const displayHeaders = courses.map(c => c.course_name ? `${c.course_name}-${c.course_code}` : c.course_code);
+
+    currentAttendanceData = { session, year, courses, displayHeaders, report };
+
+    area.innerHTML = `
+      <p class="text-sm text-gray-600 mb-2">
+        <b>সেশন:</b> ${escapeHtml(session)} | <b>ইয়ার:</b> ${escapeHtml(year)} | 
+        <b>ছাত্র:</b> ${report.length} | <b>কোর্স:</b> ${courses.length}
+      </p>
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+        <table class="min-w-full text-xs border">
+          <thead class="bg-gray-100 sticky top-0">
+            <tr>
+              <th class="p-2 border" rowspan="2">Roll</th>
+              <th class="p-2 border" rowspan="2">Reg No.</th>
+              <th class="p-2 border text-left" rowspan="2">Student Name</th>
+              <th class="p-2 border bg-indigo-100" colspan="${courses.length}">Course Name/Code</th>
+              <th class="p-2 border bg-amber-100" rowspan="2">Total Class</th>
+            </tr>
+            <tr class="bg-indigo-50">
+              ${displayHeaders.map(h => `<th class="p-2 border">${escapeHtml(h)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${report.map(r => `
+              <tr class="hover:bg-gray-50">
+                <td class="p-2 border text-center">${escapeHtml(r.class_roll)}</td>
+                <td class="p-2 border text-center">${escapeHtml(r.reg_no)}</td>
+                <td class="p-2 border">${escapeHtml(r.name)}</td>
+                ${courses.map(c => `<td class="p-2 border text-center">${r.courseCounts[c.course_code] || 0}</td>`).join('')}
+                <td class="p-2 border text-center font-bold bg-amber-50">${r.total}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function exportAttendanceExcel() {
+  if (!currentAttendanceData) return alert('প্রথমে রিপোর্ট দেখুন');
+  const { session, year, courses, displayHeaders, report } = currentAttendanceData;
+  const row1 = ['', '', '', 'Course Name/Code', ...Array(courses.length - 1).fill(''), 'Total Class'];
+  const row2 = ['Roll', 'Reg No.', 'Student Name', ...displayHeaders, 'Total Class'];
+  const data = [row1, row2];
+  report.forEach(r => {
+    data.push([r.class_roll, r.reg_no, r.name,
+      ...courses.map(c => r.courseCounts[c.course_code] || 0), r.total]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{ wch: 6 }, { wch: 15 }, { wch: 28 },
+    ...courses.map(() => ({ wch: 12 })), { wch: 12 }];
+  ws['!merges'] = [{ s: { r: 0, c: 3 }, e: { r: 0, c: 3 + courses.length - 1 } }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+  XLSX.writeFile(wb, `Attendance_${session}_${year}.xlsx`);
+}
+
+async function exportAttendancePDF() {
+  if (!currentAttendanceData) return alert('প্রথমে রিপোর্ট দেখুন');
+  const { session, year, courses, displayHeaders, report } = currentAttendanceData;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape' });
+  await setupBanglaFont(doc);
+  doc.setFontSize(14);
+  doc.text('AMC Economics - Attendance Report', 14, 15);
+  doc.setFontSize(10);
+  doc.text(`Session: ${session} | Year: ${year}`, 14, 22);
+  doc.autoTable({
+    head: [[
+      { content: 'Roll', rowSpan: 2, styles: { valign: 'middle' } },
+      { content: 'Reg No.', rowSpan: 2, styles: { valign: 'middle' } },
+      { content: 'Student Name', rowSpan: 2, styles: { valign: 'middle' } },
+      { content: 'Course Name/Code', colSpan: courses.length, styles: { halign: 'center' } },
+      { content: 'Total Class', rowSpan: 2, styles: { valign: 'middle' } }
+    ], displayHeaders],
+    body: report.map(r => [r.class_roll, r.reg_no, r.name,
+      ...courses.map(c => r.courseCounts[c.course_code] || 0), r.total]),
+    startY: 28,
+    styles: { fontSize: 8, font: 'HindSiliguri' },
+    headStyles: { fillColor: [79, 70, 229], font: 'HindSiliguri', textColor: 255, halign: 'center' }
+  });
+  doc.save(`Attendance_${session}_${year}.pdf`);
+}
+
+// ---------- Exam Report ----------
+let currentExamData = null;
+
+async function loadExamReport() {
+  const session = document.getElementById('erSession').value.trim();
+  const year = document.getElementById('erYear').value;
+  const course = document.getElementById('erCourse').value.trim();
+  const area = document.getElementById('examReportArea');
+  if (!session || !year || !course) {
+    area.innerHTML = '<p class="text-red-500 text-center py-4">সেশন, ইয়ার ও কোর্স দিন</p>';
+    return;
+  }
+  area.innerHTML = '<p class="text-center py-4">⏳ লোড হচ্ছে...</p>';
+  try {
+    const { data: students } = await db.from('students')
+      .select('id, class_roll, reg_no, name')
+      .eq('session', session).eq('year', year).eq('status', 'active')
+      .order('class_roll');
+
+    const { data: marks } = await db.from('marks')
+      .select('*').eq('session', session).eq('year', year).eq('course_code', course);
+
+    const markMap = {};
+    marks?.forEach(m => {
+      if (!markMap[m.student_id]) markMap[m.student_id] = {};
+      markMap[m.student_id][m.exam_type] = m.marks;
+    });
+
+    const examTypes = ['1st In-course', '2nd In-course', 'Assignment', 'Quiz Test', 'Class Test'];
+
+    currentExamData = { session, year, course, examTypes, students, markMap };
+
+    area.innerHTML = `
+      <p class="text-sm mb-2"><b>সেশন:</b> ${escapeHtml(session)} | <b>ইয়ার:</b> ${escapeHtml(year)} | <b>কোর্স:</b> ${escapeHtml(course)}</p>
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+        <table class="min-w-full text-xs border">
+          <thead class="bg-gray-100 sticky top-0">
+            <tr>
+              <th class="p-2 border">Roll</th>
+              <th class="p-2 border">Reg No.</th>
+              <th class="p-2 border text-left">Name</th>
+              ${examTypes.map(e => `<th class="p-2 border">${escapeHtml(e)}</th>`).join('')}
+              <th class="p-2 border bg-amber-100">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${students?.map(s => {
+              const row = markMap[s.id] || {};
+              const total = examTypes.reduce((sum, e) => sum + (row[e] || 0), 0);
+              return `<tr class="hover:bg-gray-50">
+                <td class="p-2 border text-center">${escapeHtml(s.class_roll)}</td>
+                <td class="p-2 border text-center">${escapeHtml(s.reg_no || '-')}</td>
+                <td class="p-2 border">${escapeHtml(s.name)}</td>
+                ${examTypes.map(e => `<td class="p-2 border text-center">${row[e] ?? '-'}</td>`).join('')}
+                <td class="p-2 border text-center font-bold bg-amber-50">${total}</td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="10" class="text-center py-4 text-gray-400">ছাত্র নেই</td></tr>'}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function exportExamExcel() {
+  if (!currentExamData) return alert('প্রথমে রিপোর্ট দেখুন');
+  const { session, year, course, examTypes, students, markMap } = currentExamData;
+  const data = [['Roll', 'Reg No.', 'Name', ...examTypes, 'Total']];
+  students.forEach(s => {
+    const row = markMap[s.id] || {};
+    const total = examTypes.reduce((sum, e) => sum + (row[e] || 0), 0);
+    data.push([s.class_roll, s.reg_no || '', s.name,
+      ...examTypes.map(e => row[e] ?? ''), total]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Marks');
+  XLSX.writeFile(wb, `Exam_${course}_${session}.xlsx`);
+}
+
+async function exportExamPDF() {
+  if (!currentExamData) return alert('প্রথমে রিপোর্ট দেখুন');
+  const { session, year, course, examTypes, students, markMap } = currentExamData;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape' });
+  await setupBanglaFont(doc);
+  doc.setFontSize(14);
+  doc.text(`Exam Mark Report - ${course}`, 14, 15);
+  doc.setFontSize(10);
+  doc.text(`Session: ${session} | Year: ${year}`, 14, 22);
+  doc.autoTable({
+    head: [['Roll', 'Reg No.', 'Name', ...examTypes, 'Total']],
+    body: students.map(s => {
+      const row = markMap[s.id] || {};
+      const total = examTypes.reduce((sum, e) => sum + (row[e] || 0), 0);
+      return [s.class_roll, s.reg_no || '-', s.name,
+        ...examTypes.map(e => row[e] ?? '-'), total];
+    }),
+    startY: 28,
+    styles: { fontSize: 8, font: 'HindSiliguri' },
+    headStyles: { fillColor: [245, 158, 11], font: 'HindSiliguri' }
+  });
+  doc.save(`Exam_${course}_${session}.pdf`);
+}
+
+// ---------- Individual Report ----------
+let currentIndividualData = null;
+
+async function loadIndividualReport() {
+  const session = document.getElementById('irSession').value.trim();
+  const year = document.getElementById('irYear').value;
+  const roll = document.getElementById('irRoll').value.trim();
+  const area = document.getElementById('individualReportArea');
+  if (!session || !year || !roll) {
+    area.innerHTML = '<p class="text-red-500 text-center py-4">সেশন, ইয়ার ও রোল দিন</p>';
+    return;
+  }
+  area.innerHTML = '<p class="text-center py-4">⏳ লোড হচ্ছে...</p>';
+  try {
+    const { data: student } = await db.from('students')
+      .select('id, name, class_roll, reg_no')
+      .eq('session', session).eq('year', year)
+      .or(`class_roll.eq.${roll},reg_no.eq.${roll}`).maybeSingle();
+
+    if (!student) {
+      area.innerHTML = '<p class="text-red-500 text-center py-4">❌ ছাত্র পাওয়া যায়নি</p>';
+      return;
+    }
+
+    const { data: courses } = await db.from('courses')
+      .select('*').eq('session', session).eq('year', year).order('course_code');
+
+    const { data: sessions } = await db.from('attendance_sessions')
+      .select('id, course_code, date')
+      .eq('session', session).eq('year', year).order('date');
+
+    const sessionIds = sessions?.map(s => s.id) || [];
+    let records = [];
+    if (sessionIds.length > 0) {
+      const { data: recs } = await db.from('attendance_records')
+        .select('*').eq('student_id', student.id).in('session_id', sessionIds);
+      records = recs || [];
+    }
+
+    const dateMap = {};
+    sessions?.forEach(s => {
+      if (!dateMap[s.date]) dateMap[s.date] = {};
+      const rec = records.find(r => r.session_id === s.id);
+      dateMap[s.date][s.course_code] = rec ? rec.status : null;
+    });
+
+    const dates = Object.keys(dateMap).sort();
+    const courseCodes = courses?.map(c => c.course_code) || [];
+
+    currentIndividualData = { student, session, year, courseCodes, dates, dateMap };
+
+    area.innerHTML = `
+      <div class="bg-indigo-50 p-3 rounded-xl mb-3">
+        <p class="text-sm"><b>নাম:</b> ${escapeHtml(student.name)}</p>
+        <p class="text-sm"><b>রোল:</b> ${escapeHtml(student.class_roll)} | <b>রেজি:</b> ${escapeHtml(student.reg_no || '-')}</p>
+        <p class="text-xs text-gray-500">${escapeHtml(session)} · ${escapeHtml(year)}</p>
+      </div>
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+        <table class="min-w-full text-xs border">
+          <thead class="bg-gray-100 sticky top-0">
+            <tr>
+              <th class="p-2 border">Date</th>
+              ${courseCodes.map(c => `<th class="p-2 border">${escapeHtml(c)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${dates.map(d => `
+              <tr class="hover:bg-gray-50">
+                <td class="p-2 border text-center font-bold">${escapeHtml(d)}</td>
+                ${courseCodes.map(c => {
+                  const st = dateMap[d][c];
+                  let display = '-'; let cls = 'text-gray-400';
+                  if (st === 'present') { display = 'P'; cls = 'text-emerald-600 font-bold'; }
+                  else if (st === 'absent') { display = 'A'; cls = 'text-red-600 font-bold'; }
+                  else if (st === 'late') { display = 'L'; cls = 'text-amber-600 font-bold'; }
+                  else if (st === 'excused') { display = 'E'; cls = 'text-blue-600 font-bold'; }
+                  return `<td class="p-2 border text-center ${cls}">${display}</td>`;
+                }).join('')}
+              </tr>
+            `).join('') || '<tr><td colspan="10" class="text-center py-4 text-gray-400">কোনো হাজিরা নেই</td></tr>'}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function exportIndividualExcel() {
+  if (!currentIndividualData) return alert('প্রথমে রিপোর্ট দেখুন');
+  const { student, session, year, courseCodes, dates, dateMap } = currentIndividualData;
+  const data = [
+    ['AMC Economics - Individual Report'], [''],
+    ['Roll', student.class_roll],
+    ['Reg', student.reg_no || ''],
+    ['Name', student.name],
+    ['Session', session],
+    ['Year', year],
+    [''],
+    ['Date', ...courseCodes]
+  ];
+  dates.forEach(d => {
+    data.push([d, ...courseCodes.map(c => {
+      const st = dateMap[d][c];
+      if (st === 'present') return 'P';
+      if (st === 'absent') return 'A';
+      if (st === 'late') return 'L';
+      if (st === 'excused') return 'E';
+      return '';
+    })]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Individual');
+  XLSX.writeFile(wb, `Individual_${student.class_roll}.xlsx`);
+}
+
+async function exportIndividualPDF() {
+  if (!currentIndividualData) return alert('প্রথমে রিপোর্ট দেখুন');
+  const { student, session, year, courseCodes, dates, dateMap } = currentIndividualData;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape' });
+  await setupBanglaFont(doc);
+  doc.setFontSize(14);
+  doc.text('AMC Economics - Individual Report', 14, 15);
+  doc.setFontSize(10);
+  doc.text(`Name: ${student.name} | Roll: ${student.class_roll}`, 14, 22);
+  doc.text(`Session: ${session} | Year: ${year}`, 14, 28);
+  doc.autoTable({
+    head: [['Date', ...courseCodes]],
+    body: dates.map(d => [d, ...courseCodes.map(c => {
+      const st = dateMap[d][c];
+      if (st === 'present') return 'P';
+      if (st === 'absent') return 'A';
+      if (st === 'late') return 'L';
+      if (st === 'excused') return 'E';
+      return '-';
+    })]),
+    startY: 34,
+    styles: { fontSize: 9, font: 'HindSiliguri' },
+    headStyles: { fillColor: [236, 72, 153], font: 'HindSiliguri' }
+  });
+  doc.save(`Individual_${student.class_roll}.pdf`);
+}
+
+// ============================================================
+// SESSION MANAGEMENT
+// ============================================================
+async function loadSessionList() {
+  const { data: sessions } = await db.from('students')
+    .select('session, year, is_archived')
+    .order('session', { ascending: false });
+
+  if (!sessions || !sessions.length) {
+    document.getElementById('sessionListArea').innerHTML = '<p class="text-gray-400 text-center py-4">কোনো সেশন নেই</p>';
+    return;
+  }
+
+  const combos = {};
+  sessions.forEach(s => {
+    const key = `${s.session}|${s.year}`;
+    if (!combos[key]) combos[key] = { session: s.session, year: s.year, is_archived: s.is_archived, count: 0 };
+    combos[key].count++;
+  });
+
+  const list = Object.values(combos);
+
+  document.getElementById('sessionListArea').innerHTML = `
     <div class="overflow-x-auto">
       <table class="min-w-full text-sm border">
-        <thead class="bg-gray-100"><tr>
-          <th class="p-2 border">স্ট্যাটাস</th>
-          <th class="p-2 border">রোল</th>
-          <th class="p-2 border">রেজি</th>
-          <th class="p-2 border">নাম</th>
-          <th class="p-2 border">সেশন</th>
-          <th class="p-2 border">ইয়ার</th>
-        </tr></thead>
-        <tbody>${data?.map(s => `<tr>
-          <td class="p-2 border text-center">${statusIcon[s.status] || '✅'}</td>
-          <td class="p-2 border">${escapeHtml(s.class_roll)}</td>
-          <td class="p-2 border">${escapeHtml(s.reg_no || '-')}</td>
-          <td class="p-2 border">${escapeHtml(s.name)}</td>
-          <td class="p-2 border">${escapeHtml(s.session)}</td>
-          <td class="p-2 border">${escapeHtml(s.year)}</td>
-        </tr>`).join('') || ''}</tbody>
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="p-2 border">সেশন</th>
+            <th class="p-2 border">ইয়ার</th>
+            <th class="p-2 border">ছাত্র</th>
+            <th class="p-2 border">অবস্থা</th>
+            <th class="p-2 border">কার্যক্রম</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(c => `
+            <tr class="hover:bg-gray-50">
+              <td class="p-2 border text-center">${escapeHtml(c.session)}</td>
+              <td class="p-2 border text-center">${escapeHtml(c.year)}</td>
+              <td class="p-2 border text-center">${c.count}</td>
+              <td class="p-2 border text-center">
+                ${c.is_archived ? '<span class="text-amber-600">📦 আর্কাইভ</span>' : '<span class="text-emerald-600">✅ সক্রিয়</span>'}
+              </td>
+              <td class="p-2 border text-center">
+                ${!c.is_archived ? `
+                  <button class="archive-btn bg-amber-500 text-white px-3 py-1 rounded text-xs"
+                    data-session="${escapeHtml(c.session)}" data-year="${escapeHtml(c.year)}">📦 Archive</button>
+                ` : `
+                  <button class="delete-btn bg-red-600 text-white px-3 py-1 rounded text-xs"
+                    data-session="${escapeHtml(c.session)}" data-year="${escapeHtml(c.year)}">🗑️ Delete</button>
+                `}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
       </table>
     </div>`;
-}
 
-async function exportExcel() {
-  const session = document.getElementById('rpSession').value.trim();
-  const year = document.getElementById('rpYear').value;
-  const status = document.getElementById('rpStatus').value;
-
-  let q = db.from('students').select('*').order('class_roll');
-  if (session) q = q.eq('session', session);
-  if (year) q = q.eq('year', year);
-  if (status) q = q.eq('status', status);
-
-  const { data } = await q;
-  const ws = XLSX.utils.json_to_sheet(data.map(s => ({
-    'Status': s.status, 'Class Roll': s.class_roll, 'Reg No': s.reg_no,
-    'Name': s.name, 'Year': s.year, 'Session': s.session,
-    'Phone': s.phone, 'Guardian': s.guardian_name
-  })));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Students');
-  XLSX.writeFile(wb, 'students_report.xlsx');
-}
-
-async function exportPDF() {
-  const session = document.getElementById('rpSession').value.trim();
-  const year = document.getElementById('rpYear').value;
-  const status = document.getElementById('rpStatus').value;
-
-  let q = db.from('students').select('*').order('class_roll');
-  if (session) q = q.eq('session', session);
-  if (year) q = q.eq('year', year);
-  if (status) q = q.eq('status', status);
-
-  const { data } = await q;
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  doc.setFontSize(14);
-  doc.text('AMC Economics - Student List', 14, 15);
-  doc.autoTable({
-    head: [['Status', 'Roll', 'Reg No', 'Name', 'Session', 'Year']],
-    body: data.map(s => [s.status, s.class_roll, s.reg_no || '-', s.name, s.session, s.year]),
-    startY: 22
+  document.querySelectorAll('.archive-btn').forEach(btn => {
+    btn.addEventListener('click', () => archiveSession(btn.dataset.session, btn.dataset.year));
   });
-  doc.save('students_report.pdf');
+  document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteArchivedSession(btn.dataset.session, btn.dataset.year));
+  });
+}
+
+async function archiveSession(session, year) {
+  if (!confirm(`সেশন ${session} · ${year} আর্কাইভ করবেন?\n\nডাটা থাকবে কিন্তু রিপোর্টে দেখাবে না।`)) return;
+  const { data, error } = await db.rpc('archive_session', { p_session: session, p_year: year });
+  if (error || !data.ok) return alert('❌ ' + (data?.message || error?.message));
+  alert('📦 আর্কাইভ সম্পন্ন');
+  loadSessionList();
+}
+
+async function deleteArchivedSession(session, year) {
+  if (!confirm(`⚠️ সেশন ${session} · ${year} সম্পূর্ণ মুছবেন?\n\nএটি আর ফেরানো যাবে না!`)) return;
+  if (!confirm('নিশ্চিত? শেষবার জিজ্ঞেস।')) return;
+  const { data, error } = await db.rpc('delete_archived_session', { p_session: session, p_year: year });
+  if (error || !data.ok) return alert('❌ ' + (data?.message || error?.message));
+  alert('🗑️ মুছে ফেলা হয়েছে');
+  loadSessionList();
 }
 
 // ============================================================
@@ -1027,7 +1759,8 @@ async function addNotice() {
   const content = document.getElementById('nContent').value.trim();
   const priority = document.getElementById('nPriority').value;
   if (!title || !content) return alert('সব তথ্য দিন');
-  await db.from('notices').insert({ title, content, priority });
+  const { error } = await db.from('notices').insert({ title, content, priority });
+  if (error) return alert('❌ ' + error.message);
   alert('✅ নোটিশ প্রকাশিত');
   document.getElementById('nTitle').value = '';
   document.getElementById('nContent').value = '';
@@ -1065,15 +1798,16 @@ async function teacherLogin() {
 }
 
 async function showTeacherTab(tab) {
+  if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
   const el = document.getElementById('teacherContent');
 
   if (tab === 'takeAttendance') {
     const { data: myCourses } = await db.from('teacher_courses')
       .select('*').eq('teacher_id', currentTeacher.id);
     const courseOpts = myCourses?.map(c =>
-      `<option value="${c.course_code}" data-session="${c.session}" data-year="${c.year}">
+      `<option value="${c.course_code}|${c.session}|${c.year}">
         ${c.course_code} — ${c.session} · ${c.year}
-      </option>`).join('') || '<option value="">কোনো কোর্স নেই — অ্যাডমিনকে জানান</option>';
+      </option>`).join('') || '<option value="">কোর্স নেই</option>';
 
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
@@ -1100,13 +1834,14 @@ async function showTeacherTab(tab) {
   else if (tab === 'manualEntry') {
     const { data: myCourses } = await db.from('teacher_courses')
       .select('*').eq('teacher_id', currentTeacher.id);
-    const uniqueCourses = [...new Set(myCourses?.map(c => c.course_code) || [])];
+    const courseOpts = myCourses?.map(c =>
+      `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`
+    ).join('') || '<option value="">কোর্স নেই</option>';
+
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold">✍️ ম্যানুয়াল হাজিরা</h3>
-        <select id="meCourse" class="w-full border-2 rounded-xl p-3">
-          ${uniqueCourses.map(c => `<option>${escapeHtml(c)}</option>`).join('') || '<option value="">কোর্স নেই</option>'}
-        </select>
+        <select id="meCourse" class="w-full border-2 rounded-xl p-3">${courseOpts}</select>
         <input type="date" id="meDate" class="w-full border-2 rounded-xl p-3">
         <input id="meRoll" placeholder="ক্লাস রোল / রেজি নং" class="w-full border-2 rounded-xl p-3">
         <select id="meStatus" class="w-full border-2 rounded-xl p-3">
@@ -1121,54 +1856,126 @@ async function showTeacherTab(tab) {
   else if (tab === 'markEntry') {
     const { data: myCourses } = await db.from('teacher_courses')
       .select('*').eq('teacher_id', currentTeacher.id);
-    const uniqueCourses = [...new Set(myCourses?.map(c => c.course_code) || [])];
+    const courseOpts = myCourses?.map(c =>
+      `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`
+    ).join('') || '<option value="">কোর্স নেই</option>';
+
     el.innerHTML = `
       <div class="space-y-4">
         <h3 class="text-lg font-bold">📊 নম্বর এন্ট্রি</h3>
-        <select id="mkCourse" class="w-full border-2 rounded-xl p-3">
-          ${uniqueCourses.map(c => `<option>${escapeHtml(c)}</option>`).join('') || '<option value="">কোর্স নেই</option>'}
-        </select>
+        <select id="mkCourse" class="w-full border-2 rounded-xl p-3">${courseOpts}</select>
         <select id="mkExam" class="w-full border-2 rounded-xl p-3">
-          <option>1st In-course</option><option>2nd In-course</option>
-          <option>Departmental Exam</option><option>Annual Exam</option><option>Other Exam</option>
+          <option>1st In-course</option>
+          <option>2nd In-course</option>
+          <option>Assignment</option>
+          <option>Quiz Test</option>
+          <option>Class Test</option>
+          <option>Departmental Exam</option>
+          <option>Annual Exam</option>
+          <option>Others</option>
         </select>
-        <button onclick="loadMarkEntry()" class="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">ছাত্র লোড</button>
+        <input id="mkCustomExam" placeholder="কাস্টম পরীক্ষার নাম" class="hidden w-full border-2 rounded-xl p-3">
+        <div class="flex gap-2">
+          <button onclick="loadMarkEntry()" class="flex-1 bg-purple-600 text-white px-6 py-3 rounded-xl font-bold btn-pop">ছাত্র লোড</button>
+          <button onclick="downloadMarksTemplate()" class="bg-gray-500 text-white px-4 py-3 rounded-xl font-bold btn-pop text-xs">📥 Template</button>
+        </div>
+        <input type="file" id="marksFile" accept=".xlsx,.xls" class="w-full text-sm">
+        <button onclick="importMarksExcel()" class="w-full bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold btn-pop">📊 Excel Import</button>
         <div id="markTable"></div>
+        <div id="marksStatus" class="text-sm"></div>
       </div>`;
+
+    document.getElementById('mkExam').addEventListener('change', (e) => {
+      const custom = document.getElementById('mkCustomExam');
+      if (e.target.value === 'Others') {
+        custom.classList.remove('hidden');
+      } else {
+        custom.classList.add('hidden');
+      }
+    });
   }
 }
 
+// ============================================================
+// PIN Generation + Manual Close
+// ============================================================
 async function generatePin() {
   const sel = document.getElementById('atCourseSelect');
   if (!sel || !sel.value) return alert('কোর্স সিলেক্ট করুন');
-  const opt = sel.options[sel.selectedIndex];
+  const [course_code, session, year] = sel.value.split('|');
   const date = document.getElementById('atDate').value;
   if (!date) return alert('তারিখ দিন');
 
   const { data, error } = await db.rpc('teacher_create_session', {
     p_teacher_id: currentTeacher.id,
-    p_session: opt.dataset.session,
-    p_year: opt.dataset.year,
-    p_course_code: opt.value,
+    p_session: session,
+    p_year: year,
+    p_course_code: course_code,
     p_date: date
   });
 
   if (error || !data.ok) return alert(data?.message || 'PIN তৈরি ব্যর্থ');
 
-  document.getElementById('pinDisplay').innerHTML = `
+  renderPinDisplay(data.pin, data.session_id, 45);
+}
+
+function renderPinDisplay(pin, sessionId, minutesLeft) {
+  const el = document.getElementById('pinDisplay');
+  el.innerHTML = `
     <div class="bg-indigo-50 rounded-2xl p-6 text-center">
       <p class="text-gray-500 mb-1">ছাত্রদের দেখান</p>
-      <p class="text-7xl font-bold text-indigo-600 tracking-widest">${data.pin}</p>
-      <p class="text-sm text-gray-400 mt-2">⏰ ১ ঘন্টা বৈধ</p>
+      <p class="text-7xl font-bold text-indigo-600 tracking-widest">${escapeHtml(pin)}</p>
+      <p class="pin-timer text-gray-600 mt-3" id="pinTimerDisplay">⏰ ৪৫ মিনিট বাকি</p>
+      <button id="closePinBtn" class="mt-4 bg-red-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">
+        🔒 PIN বন্ধ করুন
+      </button>
+    </div>`;
+
+  let remaining = minutesLeft * 60;
+  if (pinTimerInterval) clearInterval(pinTimerInterval);
+  pinTimerInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(pinTimerInterval);
+      pinTimerInterval = null;
+      const t = document.getElementById('pinTimerDisplay');
+      if (t) t.innerHTML = '⏰ মেয়াদ শেষ';
+      const btn = document.getElementById('closePinBtn');
+      if (btn) btn.disabled = true;
+      return;
+    }
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+    const t = document.getElementById('pinTimerDisplay');
+    if (t) t.innerHTML = `⏰ ${mins}:${String(secs).padStart(2, '0')} বাকি`;
+  }, 1000);
+
+  document.getElementById('closePinBtn').addEventListener('click', () => closePin(sessionId));
+}
+
+async function closePin(sessionId) {
+  if (!confirm('PIN বন্ধ করবেন?')) return;
+  const { data, error } = await db.rpc('close_attendance_session', {
+    p_session_id: sessionId,
+    p_teacher_id: currentTeacher.id
+  });
+  if (error || !data.ok) return alert('❌ ' + (data?.message || error?.message));
+  if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
+  document.getElementById('pinDisplay').innerHTML = `
+    <div class="bg-gray-100 rounded-2xl p-6 text-center">
+      <p class="text-4xl mb-2">🔒</p>
+      <p class="text-gray-600 font-bold">PIN বন্ধ হয়ে গেছে</p>
+      <p class="text-xs text-gray-400 mt-2">আবার নতুন PIN তৈরি করতে পারবেন</p>
     </div>`;
 }
 
 async function loadLiveSessions() {
   const { data } = await db.from('attendance_sessions')
     .select('*').eq('teacher_id', currentTeacher.id)
+    .eq('is_active', true)
     .gte('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false });
-  
+
   const sel = document.getElementById('liveSessionSelect');
   sel.innerHTML = data?.map(s => 
     `<option value="${s.id}">${escapeHtml(s.course_code)} — ${escapeHtml(s.date)} — PIN ${escapeHtml(s.pin)}</option>`
@@ -1181,62 +1988,58 @@ async function loadLiveSessions() {
 }
 
 function subscribeLive(sessionId) {
+  if (liveChannel) {
+    db.removeChannel(liveChannel);
+    liveChannel = null;
+  }
   const refresh = async () => {
-    const { data } = await db.from('attendance_records')
-      .select('*, students(name, class_roll)')
-      .eq('session_id', sessionId);
+    const { data, error } = await db.from('attendance_records')
+      .select('marked_at, students(name, class_roll)').eq('session_id', sessionId);
+    const rows = error || !data ? [] : data;
     const el = document.getElementById('liveCount');
-    if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600">${data.length}</p><p class="text-gray-500">উপস্থিত</p>`;
+    if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600">${rows.length}</p><p class="text-gray-500">উপস্থিত</p>`;
     const el2 = document.getElementById('liveList');
-    if (el2) el2.innerHTML = data.sort((a,b) => new Date(b.marked_at) - new Date(a.marked_at))
+    if (el2) el2.innerHTML = rows.sort((a,b) => new Date(b.marked_at) - new Date(a.marked_at))
       .map(r => `<div class="bg-emerald-50 px-3 py-2 rounded-lg flex justify-between">
         <span>✅ ${escapeHtml(r.students?.name)}</span>
         <span class="text-xs text-gray-400">${new Date(r.marked_at).toLocaleTimeString('bn-BD')}</span>
       </div>`).join('');
   };
-
-  db.channel('live_' + sessionId)
+  liveChannel = db.channel('live_' + sessionId)
     .on('postgres_changes', {
       event: '*', schema: 'public', table: 'attendance_records',
       filter: `session_id=eq.${sessionId}`
-    }, refresh)
-    .subscribe();
+    }, refresh).subscribe();
   refresh();
 }
 
 async function manualAttendance() {
-  const course = document.getElementById('meCourse').value;
+  const courseVal = document.getElementById('meCourse').value;
   const date = document.getElementById('meDate').value;
   const roll = document.getElementById('meRoll').value.trim();
   const status = document.getElementById('meStatus').value;
-  if (!course || !date || !roll) return alert('সব তথ্য দিন');
+  if (!courseVal || !date || !roll) return alert('সব তথ্য দিন');
 
-  const { data: myCourse } = await db.from('teacher_courses')
-    .select('*').eq('teacher_id', currentTeacher.id)
-    .eq('course_code', course).single();
-
-  if (!myCourse) return alert('কোর্স মেলেনি');
+  const [course_code, session, year] = courseVal.split('|');
 
   let { data: sess } = await db.from('attendance_sessions')
-    .select('*').eq('course_code', course).eq('date', date)
-    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    .select('*').eq('teacher_id', currentTeacher.id)
+    .eq('session', session).eq('year', year)
+    .eq('course_code', course_code).eq('date', date).maybeSingle();
 
   if (!sess) {
-    const { data: pinData } = await db.rpc('teacher_create_session', {
-      p_teacher_id: currentTeacher.id,
-      p_session: myCourse.session,
-      p_year: myCourse.year,
-      p_course_code: course,
-      p_date: date
+    const { data: pinData, error: pinErr } = await db.rpc('teacher_create_session', {
+      p_teacher_id: currentTeacher.id, p_session: session, p_year: year,
+      p_course_code: course_code, p_date: date
     });
-    if (!pinData.ok) return alert(pinData.message);
+    if (pinErr || !pinData?.ok || !pinData?.session_id) return alert(pinData?.message || 'সেশন তৈরি ব্যর্থ');
     const { data: newSess } = await db.from('attendance_sessions')
-      .select('*').eq('id', pinData.session_id).single();
+      .select('*').eq('id', pinData.session_id).maybeSingle();
     sess = newSess;
   }
 
-  const { data: student } = await db.from('students').select('*')
-    .eq('session', myCourse.session).eq('year', myCourse.year)
+  const { data: student } = await db.from('students')
+    .select('id, name').eq('session', session).eq('year', year)
     .eq('status', 'active')
     .or(`class_roll.eq.${roll},reg_no.eq.${roll}`).maybeSingle();
   if (!student) return alert('ছাত্র পাওয়া যায়নি');
@@ -1251,51 +2054,179 @@ async function manualAttendance() {
   document.getElementById('meRoll').value = '';
 }
 
+// ============================================================
+// Mark Entry + Excel Import (Claude's Fix #1 ও #2)
+// ============================================================
 async function loadMarkEntry() {
-  const course = document.getElementById('mkCourse').value;
-  const exam = document.getElementById('mkExam').value;
-  if (!course) return alert('কোর্স সিলেক্ট করুন');
+  const courseVal = document.getElementById('mkCourse').value;
+  const examVal = document.getElementById('mkExam').value;
+  const customExam = document.getElementById('mkCustomExam').value.trim();
+  const exam = examVal === 'Others' ? (customExam || 'Others') : examVal;
+  if (!courseVal) return alert('কোর্স সিলেক্ট করুন');
+  if (examVal === 'Others' && !customExam) return alert('পরীক্ষার নাম লিখুন');
 
-  const { data: myCourse } = await db.from('teacher_courses')
-    .select('*').eq('teacher_id', currentTeacher.id)
-    .eq('course_code', course).single();
+  // ✅ Claude's Fix #1: dropdown-এর মান থেকেই সরাসরি session/year পার্স
+  // আগের কোডে `teacher_courses` টেবিলে আলাদা query + .single() ছিল,
+  // যেটা একই কোর্স একাধিক সেশনে থাকলে ভুল/error দিত।
+  const [course, session, year] = courseVal.split('|');
+  if (!session || !year) return alert('কোর্স তথ্য অসম্পূর্ণ — আবার সিলেক্ট করুন');
 
-  const { data: students } = await db.from('students')
-    .select('*').eq('session', myCourse.session).eq('year', myCourse.year)
-    .eq('status', 'active').order('class_roll');
+  const { data: students, error: sErr } = await db.from('students')
+    .select('id, name, class_roll, reg_no')
+    .eq('session', session).eq('year', year).eq('status', 'active').order('class_roll');
+  if (sErr) return alert('❌ ' + sErr.message);
 
   const { data: existing } = await db.from('marks')
-    .select('*').eq('session', myCourse.session).eq('year', myCourse.year)
+    .select('student_id, marks').eq('session', session).eq('year', year)
     .eq('course_code', course).eq('exam_type', exam);
 
   const markMap = {};
   existing?.forEach(m => markMap[m.student_id] = m.marks);
 
-  document.getElementById('markTable').innerHTML = `
+  const table = document.getElementById('markTable');
+  table.innerHTML = `
     <div class="overflow-y-auto max-h-96 space-y-2 mt-4">
       ${students?.map(s => `
         <div class="flex items-center gap-2 bg-gray-50 p-2 rounded-xl">
           <span class="flex-1 text-sm">${escapeHtml(s.class_roll)} — ${escapeHtml(s.name)}</span>
           <input type="number" min="0" max="100" value="${markMap[s.id] ?? ''}"
-            class="w-20 border-2 rounded-lg p-2 text-center"
-            onchange="saveMark('${s.id}', this.value, '${escapeHtml(course)}', '${escapeHtml(exam)}', '${escapeHtml(myCourse.session)}', '${escapeHtml(myCourse.year)}')">
+            class="mark-input w-20 border-2 rounded-lg p-2 text-center"
+            data-student-id="${escapeHtml(s.id)}" data-course="${escapeHtml(course)}"
+            data-exam="${escapeHtml(exam)}" data-session="${escapeHtml(session)}"
+            data-year="${escapeHtml(year)}">
         </div>
       `).join('') || '<p class="text-gray-400">ছাত্র নেই</p>'}
     </div>`;
+
+  table.querySelectorAll('.mark-input').forEach(inp => {
+    inp.addEventListener('change', () => {
+      saveMark(inp.dataset.studentId, inp.value, inp.dataset.course,
+        inp.dataset.exam, inp.dataset.session, inp.dataset.year, inp);
+    });
+  });
 }
 
-async function saveMark(studentId, marks, course, exam, session, year) {
+async function saveMark(studentId, marks, course, exam, session, year, inputEl) {
+  // ✅ Claude's Fix #2: খালি ইনপুট চেক
+  // Number('') === 0, তাই আগে ফাঁকা রাখলে ভুলে ০ সেভ হয়ে যেত।
+  if (String(marks).trim() === '') return;
+
   const num = Number(marks);
-  if (isNaN(num) || num < 0 || num > 100) return alert('নম্বর ০-১০০ হতে হবে');
+  if (isNaN(num) || num < 0 || num > 100) {
+    if (inputEl) inputEl.style.background = '#fecaca';
+    setTimeout(() => { if (inputEl) inputEl.style.background = ''; }, 1500);
+    return alert('নম্বর ০-১০০ হতে হবে');
+  }
 
   const { data, error } = await db.rpc('save_mark', {
     p_session: session, p_year: year, p_course_code: course,
     p_exam_type: exam, p_student_id: studentId, p_marks: num
   });
 
-  if (error || !data.ok) return alert('❌ ' + (data?.message || error?.message));
-  event.target.style.background = '#d1fae5';
-  setTimeout(() => event.target.style.background = '', 800);
+  if (error || !data?.ok) {
+    if (inputEl) inputEl.style.background = '#fecaca';
+    setTimeout(() => { if (inputEl) inputEl.style.background = ''; }, 1500);
+    return alert('❌ ' + (data?.message || error?.message));
+  }
+  
+  if (inputEl) {
+    inputEl.style.background = '#d1fae5';
+    setTimeout(() => { if (inputEl) inputEl.style.background = ''; }, 800);
+  }
+}
+
+// Marks Excel Template
+async function downloadMarksTemplate() {
+  const courseVal = document.getElementById('mkCourse').value;
+  const examVal = document.getElementById('mkExam').value;
+  const customExam = document.getElementById('mkCustomExam').value.trim();
+  const exam = examVal === 'Others' ? (customExam || 'Others') : examVal;
+  if (!courseVal) return alert('প্রথমে কোর্স সিলেক্ট করুন');
+
+  const [course, session, year] = courseVal.split('|');
+  const { data: students } = await db.from('students')
+    .select('id, class_roll, reg_no, name')
+    .eq('session', session).eq('year', year).eq('status', 'active').order('class_roll');
+
+  if (!students?.length) return alert('ছাত্র নেই');
+
+  const data = [['Class Roll', 'Reg No', 'Name', exam]];
+  students.forEach(s => {
+    data.push([s.class_roll, s.reg_no || '', s.name, '']);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Marks');
+  XLSX.writeFile(wb, `Marks_${course}_${exam}.xlsx`);
+}
+
+async function importMarksExcel() {
+  const file = document.getElementById('marksFile')?.files[0];
+  if (!file) return alert('ফাইল সিলেক্ট করুন');
+
+  const courseVal = document.getElementById('mkCourse').value;
+  const examVal = document.getElementById('mkExam').value;
+  const customExam = document.getElementById('mkCustomExam').value.trim();
+  const exam = examVal === 'Others' ? (customExam || 'Others') : examVal;
+  if (!courseVal) return alert('কোর্স সিলেক্ট করুন');
+
+  const [course, session, year] = courseVal.split('|');
+  const status = document.getElementById('marksStatus');
+  status.innerHTML = '<p class="text-gray-500">⏳ প্রসেস হচ্ছে...</p>';
+
+  const { data: students } = await db.from('students')
+    .select('id, class_roll, reg_no')
+    .eq('session', session).eq('year', year).eq('status', 'active');
+
+  const rollToStudent = {};
+  students?.forEach(s => { rollToStudent[s.class_roll] = s.id; });
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      let success = 0, notFound = 0, invalid = 0;
+      const notFoundList = [];
+
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const roll = String(r[0] || '').trim();
+        const markVal = r[3];
+
+        if (!roll) continue;
+        const studentId = rollToStudent[roll];
+        if (!studentId) { notFound++; notFoundList.push(roll); continue; }
+
+        // খালি ইনপুট skip (Claude fix)
+        if (markVal === '' || markVal === undefined || markVal === null) continue;
+
+        const num = Number(markVal);
+        if (isNaN(num) || num < 0 || num > 100) { invalid++; continue; }
+
+        const { error } = await db.rpc('save_mark', {
+          p_session: session, p_year: year, p_course_code: course,
+          p_exam_type: exam, p_student_id: studentId, p_marks: num
+        });
+        if (error) { invalid++; } else { success++; }
+      }
+
+      status.innerHTML = `
+        <div class="bg-emerald-50 p-4 rounded-xl">
+          <p class="font-bold text-emerald-700 mb-2">✅ Import সম্পন্ন</p>
+          <p class="text-sm">✓ সফল: ${success}</p>
+          <p class="text-sm">✗ পাওয়া যায়নি: ${notFound}</p>
+          <p class="text-sm">❌ Invalid: ${invalid}</p>
+          ${notFoundList.length > 0 ? `<p class="text-xs text-gray-500 mt-2">পাওয়া যায়নি: ${notFoundList.join(', ')}</p>` : ''}
+        </div>`;
+    } catch (err) {
+      status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(err.message)}</p>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 // ============================================================
@@ -1306,7 +2237,8 @@ async function studentLogin() {
   const roll = document.getElementById('studentRoll').value.trim();
   document.getElementById('studentErr').textContent = '';
 
-  const { data, error } = await db.from('students').select('*')
+  const { data, error } = await db.from('students')
+    .select('id, name, session, year, class_roll, reg_no, status')
     .eq('session', session)
     .or(`class_roll.eq.${roll},reg_no.eq.${roll}`).maybeSingle();
 
@@ -1318,13 +2250,11 @@ async function studentLogin() {
 
 async function loadStudentData() {
   const student = currentStudent;
-
   const { data: mySessions } = await db.from('attendance_sessions')
     .select('id, course_code, date')
     .eq('session', student.session).eq('year', student.year);
 
   const totalClasses = mySessions?.length || 0;
-
   const { data: records } = await db.from('attendance_records')
     .select('status, session_id, attendance_sessions(course_code, date)')
     .eq('student_id', student.id);
@@ -1382,7 +2312,7 @@ async function loadStudentData() {
 })();
 
 // ============================================================
-// 🔧 Service Worker রেজিস্ট্রেশন (PWA + অফলাইন সাপোর্ট)
+// Service Worker
 // ============================================================
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
