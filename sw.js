@@ -1,156 +1,163 @@
 // ============================================================
 // Service Worker — AMC অর্থনীতি হাজিরা সিস্টেম
-// Version: v3.0 (Phase 3 + 4 Update)
-// Updated: 2026-09-30
+// Version: v4.0 (CDN Cache — FOUC Fix)
+// Updated: 2026-10-04
 // ============================================================
 
-// ⚠️ গুরুত্বপূর্ণ: প্রতিবার update করলে এই নাম পরিবর্তন করুন
-// এতে সব user-এর browser-এ পুরনো cache auto-clear হবে
-const CACHE_NAME = 'amc-attendance-v3';
+// ⚠️ প্রতিবার update করলে version number বাড়ান (v4 → v5 → v6...)
+const CACHE_NAME    = 'amc-attendance-v4';
+const STATIC_CACHE  = 'amc-static-v4';
+const DYNAMIC_CACHE = 'amc-dynamic-v4';
+const CDN_CACHE     = 'amc-cdn-v4';
 
-// Static files cache
-const STATIC_CACHE = 'amc-static-v3';
-const DYNAMIC_CACHE = 'amc-dynamic-v3';
-
-// এই ফাইলগুলো সবসময় cache-এ রাখা হবে
+// নিজের ফাইল — install-এ precache হবে
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json'
 ];
 
+// ✅ CDN library গুলো — install-এ precache হবে (FOUC fix-এর মূল অংশ)
+const cdnUrlsToCache = [
+  'https://cdn.tailwindcss.com',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+  'https://cdn.jsdelivr.net/npm/sweetalert2@11',
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'
+];
+
 // ============================================================
-// INSTALL — প্রথমবার cache সেটআপ
+// Helper — CDN request কিনা?
+// ============================================================
+function isCDNRequest(url) {
+  return url.includes('cdn.tailwindcss.com') ||
+         url.includes('cdn.jsdelivr.net') ||
+         url.includes('cdnjs.cloudflare.com') ||
+         url.includes('fonts.googleapis.com') ||
+         url.includes('fonts.gstatic.com');
+}
+
+// ============================================================
+// INSTALL — সব cache প্রস্তুত করি
 // ============================================================
 self.addEventListener('install', event => {
-  console.log('🔧 Service Worker v3 installing...');
+  console.log('🔧 Service Worker v4 installing...');
 
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('📦 Cache opened:', CACHE_NAME);
-        // একটা একটা করে যোগ করছি, যাতে একটা fail করলে সব fail না হয়
-        return Promise.all(
-          urlsToCache.map(url => {
-            return cache.add(url).catch(err => {
-              console.log('⚠️ Cache add failed for:', url, err);
-            });
-          })
-        );
-      })
-      .then(() => {
-        console.log('✅ Service Worker v3 installed');
-        return self.skipWaiting();
-      })
-      .catch(err => {
-        console.log('❌ Install failed:', err);
-      })
+    Promise.all([
+      // নিজের static ফাইল
+      caches.open(CACHE_NAME).then(cache =>
+        Promise.all(urlsToCache.map(url =>
+          cache.add(url).catch(err => console.log('⚠️ Static cache fail:', url, err))
+        ))
+      ),
+      // CDN library গুলো — FOUC fix-এর মূল অংশ
+      caches.open(CDN_CACHE).then(cache =>
+        Promise.all(cdnUrlsToCache.map(url =>
+          cache.add(url).catch(err => console.log('⚠️ CDN cache fail:', url, err))
+        ))
+      )
+    ])
+    .then(() => {
+      console.log('✅ Service Worker v4 installed');
+      return self.skipWaiting();
+    })
+    .catch(err => console.log('❌ Install failed:', err))
   );
 });
 
 // ============================================================
-// ACTIVATE — পুরনো cache মুছুন
+// ACTIVATE — পুরনো cache মুছি
 // ============================================================
 self.addEventListener('activate', event => {
-  console.log('🔧 Service Worker v3 activating...');
+  console.log('🔧 Service Worker v4 activating...');
+
+  const validCaches = [CACHE_NAME, STATIC_CACHE, DYNAMIC_CACHE, CDN_CACHE];
 
   event.waitUntil(
     caches.keys()
-      .then(cacheNames => {
-        return Promise.all(
-          cacheNames.map(cacheName => {
-            // v3 ছাড়া সব পুরনো cache delete
-            if (cacheName !== CACHE_NAME &&
-                cacheName !== STATIC_CACHE &&
-                cacheName !== DYNAMIC_CACHE) {
-              console.log('🗑️ Removing old cache:', cacheName);
-              return caches.delete(cacheName);
-            }
-          })
-        );
-      })
+      .then(names => Promise.all(
+        names.map(name => {
+          if (!validCaches.includes(name)) {
+            console.log('🗑️ Removing old cache:', name);
+            return caches.delete(name);
+          }
+        })
+      ))
       .then(() => {
-        console.log('✅ Service Worker v3 activated');
+        console.log('✅ Service Worker v4 activated');
         return self.clients.claim();
       })
-      .catch(err => {
-        console.log('❌ Activate failed:', err);
-      })
+      .catch(err => console.log('❌ Activate failed:', err))
   );
 });
 
 // ============================================================
-// FETCH — Network-first, fallback to cache
+// FETCH — request ধরার মূল logic
 // ============================================================
 self.addEventListener('fetch', event => {
-  // শুধু GET রিকোয়েস্ট handle করি
   if (event.request.method !== 'GET') return;
 
   const url = event.request.url;
 
-  // ❌ Supabase API call cache করব না (real-time data)
-  if (url.includes('supabase.co')) return;
+  // ❌ Supabase API calls — সবসময় live (cache করব না)
+  if (url.includes('.supabase.co')) return;
 
-  // ❌ CDN (Tailwind, jsPDF, etc.) cache করব না
-  if (url.includes('cdn.') ||
-      url.includes('cdnjs.') ||
-      url.includes('jsdelivr') ||
-      url.includes('tailwindcss.com')) return;
-
-  // ❌ Chrome extension-এর request handle করব না
+  // ❌ Chrome extension
   if (url.startsWith('chrome-extension://')) return;
 
-  // ❌ অন্য origin-এর request (fonts.google.com বাদে)
-  // Google Fonts cache করা যাবে, তাই filter করা হলো না
+  // ✅ CDN — cache-first strategy (FOUC fix)
+  if (isCDNRequest(url)) {
+    event.respondWith(
+      caches.open(CDN_CACHE).then(cache =>
+        cache.match(event.request).then(cached => {
+          // Background-এ নতুন version fetch করব
+          const fetchPromise = fetch(event.request)
+            .then(response => {
+              if (response && response.status === 200) {
+                cache.put(event.request, response.clone());
+              }
+              return response;
+            })
+            .catch(() => cached);
 
-  // ✅ Network-first strategy
+          // Cache-এ থাকলে সাথে সাথে দাও (FOUC হবে না)
+          return cached || fetchPromise;
+        })
+      )
+    );
+    return;
+  }
+
+  // ✅ বাকি সব — network-first, cache fallback
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // সফল হলে cache-এ কপি রাখি
         if (response && response.status === 200) {
-          const responseClone = response.clone();
-
-          // HTML/font → dynamic cache
-          if (url.includes('fonts.g') ||
-              url.endsWith('.ttf') ||
-              url.endsWith('.woff') ||
-              url.endsWith('.woff2')) {
-            caches.open(DYNAMIC_CACHE)
-              .then(cache => {
-                cache.put(event.request, responseClone).catch(() => {});
-              });
-          } else {
-            caches.open(CACHE_NAME)
-              .then(cache => {
-                cache.put(event.request, responseClone).catch(() => {});
-              });
-          }
+          const clone = response.clone();
+          caches.open(DYNAMIC_CACHE).then(cache =>
+            cache.put(event.request, clone).catch(() => {})
+          );
         }
         return response;
       })
       .catch(() => {
-        // Network fail হলে cache থেকে দাও
-        return caches.match(event.request)
-          .then(cachedResponse => {
-            if (cachedResponse) {
-              return cachedResponse;
-            }
-            // Cache-এও না থাকলে offline message
-            // HTML request হলে index.html দাও
-            if (event.request.headers.get('accept') &&
-                event.request.headers.get('accept').includes('text/html')) {
-              return caches.match('./index.html');
-            }
-            // অন্যথায় 503
-            return new Response('অফলাইন — ইন্টারনেট সংযোগ নেই', {
-              status: 503,
-              statusText: 'Service Unavailable',
-              headers: new Headers({
-                'Content-Type': 'text/plain; charset=utf-8'
-              })
-            });
+        return caches.match(event.request).then(cached => {
+          if (cached) return cached;
+
+          // HTML request হলে index.html fallback
+          const accept = event.request.headers.get('accept') || '';
+          if (accept.includes('text/html')) {
+            return caches.match('./index.html');
+          }
+
+          return new Response('অফলাইন — ইন্টারনেট সংযোগ নেই', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
           });
+        });
       })
   );
 });
@@ -162,12 +169,8 @@ self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-
-  // নতুন version activate করার message
   if (event.data && event.data.type === 'CLEAR_CACHE') {
-    caches.keys().then(names => {
-      names.forEach(name => caches.delete(name));
-    });
+    caches.keys().then(names => names.forEach(n => caches.delete(n)));
   }
 });
 
@@ -219,4 +222,4 @@ self.addEventListener('notificationclick', event => {
   );
 });
 
-console.log('✅ Service Worker v3 loaded');
+console.log('✅ Service Worker v4 loaded');
