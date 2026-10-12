@@ -287,7 +287,8 @@ let currentPinSession = null;
 let liveChannel = null;
 let pinTimerInterval = null;
 let activeSessionCheckInterval = null;
-let pendingConfirmation = null;  // ⚠️ Confirmation Screen-এর জন্য
+let pendingConfirmation = null;
+let liveReportInterval = null;
 
 let deviceId = localStorage.getItem('amc_device_id');
 if (!deviceId) {
@@ -526,7 +527,7 @@ function showSection(id) {
 }
 
 // ============================================================
-// 🎯 ছাত্রের হাজিরা — Phase 2 Full Roll + Offline
+// 🎯 ছাত্রের হাজিরা — Full Roll + Offline + Confirmation
 // ============================================================
 async function submitPin() {
   const pin = banglaToEnglish(document.getElementById('homePinInput').value.trim());
@@ -671,12 +672,10 @@ async function selectStudent(studentId, roll, name, reg) {
   document.getElementById('submitAttendanceBtn').disabled = false;
 }
 
-// ⚠️ UPDATED: findAndSubmit — এখন Confirmation Screen দেখাবে
 async function findAndSubmit() {
   const roll = banglaToEnglish(document.getElementById('studentRollInput').value.trim());
   if (!roll) return toastWarning('রোল লিখুন');
 
-  // ছাত্রের তথ্য বের করি
   const s = currentPinSession;
   let student = null;
 
@@ -700,11 +699,9 @@ async function findAndSubmit() {
     return;
   }
 
-  // ⚠️ Confirmation Screen দেখাই
   showConfirmationScreen(student, s);
 }
 
-// ⚠️ NEW: Confirmation Screen
 function showConfirmationScreen(student, session) {
   pendingConfirmation = { student, session };
   document.getElementById('attendanceModal').classList.remove('hidden');
@@ -754,18 +751,15 @@ function showConfirmationScreen(student, session) {
     </div>`;
 }
 
-// ⚠️ NEW: Confirmation Cancel
 function cancelConfirmation() {
   pendingConfirmation = null;
   showAttendanceForm();
 }
 
-// ⚠️ NEW: Confirmation YES → save attendance
 async function confirmAndSubmit() {
   if (!pendingConfirmation) return;
   const { student } = pendingConfirmation;
 
-  // Offline → queue
   if (!navigator.onLine) {
     queueAttendance(currentPinSession.pin, student.class_roll);
     pendingConfirmation = null;
@@ -864,6 +858,7 @@ async function adminLogin() {
 async function logout() {
   if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
   if (activeSessionCheckInterval) { clearInterval(activeSessionCheckInterval); activeSessionCheckInterval = null; }
+  if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
   await db.auth.signOut();
   currentTeacher = null; currentStudent = null;
   if (liveChannel) { await db.removeChannel(liveChannel); liveChannel = null; }
@@ -2051,6 +2046,7 @@ async function teacherLogin() {
 
 async function showTeacherTab(tab) {
   if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
+  if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
   const el = document.getElementById('teacherContent');
 
   if (tab === 'takeAttendance') {
@@ -2084,6 +2080,7 @@ async function showTeacherTab(tab) {
     el.innerHTML = `
       <div class="space-y-4">
         <h3 class="text-lg font-bold dark:text-white bangla-text">🔴 লাইভ উপস্থিতি</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">💡 প্রতি ৫ সেকেন্ডে স্বয়ংক্রিয়ভাবে আপডেট হবে</p>
         <select id="liveSessionSelect" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text"></select>
         <div id="liveCount" class="text-center bg-red-50 dark:bg-red-900/30 rounded-2xl p-6">
           <p class="text-6xl font-bold text-red-600 pulse-live num-display">0</p>
@@ -2197,8 +2194,9 @@ async function showTeacherTab(tab) {
             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1 bangla-text">
               📱 Device ID দিয়ে Search
             </label>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2 bangla-text">💡 Attendance Report-এ যেই device ID দেখছেন, সেটাই লিখুন</p>
             <div class="flex gap-2">
-              <input id="trackDeviceInput" placeholder="যেমন: dev_a4f2x9k"
+              <input id="trackDeviceInput" placeholder="যেমন: dev_i7amvt"
                 class="flex-1 border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                 style="font-family: monospace;">
               <button onclick="searchByDeviceId()" class="bg-orange-600 text-white px-4 py-2 rounded-xl font-bold btn-pop bangla-text">
@@ -2227,7 +2225,7 @@ async function showTeacherTab(tab) {
               💡 উপরে Device ID বা Roll দিয়ে search করুন
             </p>
             <p class="text-xs text-blue-600 dark:text-blue-400 mt-2 bangla-text">
-              💡 Device ID দেখতে "📊 হাজিরা রিপোর্ট"-এ যান
+              💡 Device ID আংশিক লিখলেও কাজ করবে
             </p>
           </div>
         </div>
@@ -2449,6 +2447,8 @@ async function loadLiveSessions() {
 
 function subscribeLive(sessionId) {
   if (liveChannel) { db.removeChannel(liveChannel); liveChannel = null; }
+  if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
+
   const refresh = async () => {
     const { data, error } = await db.from('attendance_records').select('marked_at, students(name, class_roll)').eq('session_id', sessionId);
     const rows = error || !data ? [] : data;
@@ -2461,10 +2461,14 @@ function subscribeLive(sessionId) {
         <span class="text-xs text-gray-400 num-display">${new Date(r.marked_at).toLocaleTimeString('en-GB')}</span>
       </div>`).join('');
   };
+
   liveChannel = db.channel('live_' + sessionId).on('postgres_changes', {
     event: '*', schema: 'public', table: 'attendance_records',
     filter: `session_id=eq.${sessionId}`
   }, refresh).subscribe();
+
+  liveReportInterval = setInterval(refresh, 5000);
+
   refresh();
 }
 
@@ -2992,7 +2996,7 @@ async function searchByDeviceId() {
         students(name, class_roll, reg_no),
         attendance_sessions(course_code, date, pin)
       `)
-      .eq('device_id', deviceId)
+      .ilike('device_id', `${deviceId}%`)
       .order('marked_at', { ascending: false })
       .limit(500);
 
@@ -3038,7 +3042,7 @@ async function searchByStudentRoll() {
     const { data: students, error: sErr } = await db.from('students')
       .select('id, name, class_roll, reg_no, session, year')
       .or(`class_roll.eq.${roll},reg_no.eq.${roll}`)
-      .limit(5);
+      .order('session', { ascending: false });
 
     if (sErr) return toastError(sErr.message);
     if (!students || !students.length) {
@@ -3051,48 +3055,85 @@ async function searchByStudentRoll() {
       return;
     }
 
-    const student = students[0];
-
-    const { data: records, error: rErr } = await db.from('attendance_records')
-      .select(`
-        id, marked_at, device_id, status, student_id,
-        students(name, class_roll, reg_no),
-        attendance_sessions(course_code, date, pin)
-      `)
-      .eq('student_id', student.id)
-      .order('marked_at', { ascending: false })
-      .limit(500);
-
-    if (rErr) return toastError(rErr.message);
-    if (!records || !records.length) {
-      document.getElementById('trackingResultArea').innerHTML = `
-        <div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center">
-          <p class="text-sm text-blue-700 dark:text-blue-300 bangla-text">
-            ℹ️ ${escapeHtml(student.name)}-এর কোনো হাজিরা পাওয়া যায়নি
-          </p>
+    if (students.length > 1) {
+      const area = document.getElementById('trackingResultArea');
+      area.innerHTML = `
+        <div class="bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-300 dark:border-amber-700 rounded-xl p-4">
+          <h4 class="font-bold text-amber-700 dark:text-amber-300 bangla-text mb-3">
+            ⚠️ ${students.length} জন ছাত্র পাওয়া গেছে — একজনকে বেছে নিন
+          </h4>
+          <div class="space-y-2">
+            ${students.map(s => `
+              <button class="student-pick-btn w-full bg-white dark:bg-gray-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-3 rounded-lg text-left transition btn-pop"
+                data-id="${escapeHtml(s.id)}"
+                data-name="${escapeHtml(s.name)}">
+                <div class="flex justify-between items-center">
+                  <div>
+                    <p class="font-bold text-gray-800 dark:text-white bangla-text">${escapeHtml(s.name)}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 num-display">
+                      Roll: ${escapeHtml(s.class_roll)} · Reg: ${escapeHtml(s.reg_no || '-')}
+                    </p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-sm font-bold text-indigo-600 dark:text-indigo-300 num-display">${escapeHtml(s.session)}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">${escapeHtml(s.year)}</p>
+                  </div>
+                </div>
+              </button>
+            `).join('')}
+          </div>
         </div>`;
+      area.querySelectorAll('.student-pick-btn').forEach(btn => {
+        btn.addEventListener('click', () => loadStudentTracking(btn.dataset.id, btn.dataset.name));
+      });
       return;
     }
 
-    const uniqueDevices = new Set(records.map(r => r.device_id)).size;
-    const firstDate = records[records.length - 1]?.marked_at;
-    const lastDate = records[0]?.marked_at;
-    const flags = detectSuspicious(records);
-
-    renderTrackingResult({
-      type: 'student',
-      title: `ছাত্র: ${student.name} (রোল: ${student.class_roll})`,
-      records,
-      summary: {
-        totalAttendances: records.length,
-        uniqueDevices,
-        firstDate,
-        lastDate,
-        student
-      },
-      flags
-    });
+    await loadStudentTracking(students[0].id, students[0].name);
   } finally { hideGlobalLoader(); }
+}
+
+async function loadStudentTracking(studentId, studentName) {
+  const { data: records, error: rErr } = await db.from('attendance_records')
+    .select(`
+      id, marked_at, device_id, status, student_id,
+      students(name, class_roll, reg_no),
+      attendance_sessions(course_code, date, pin)
+    `)
+    .eq('student_id', studentId)
+    .order('marked_at', { ascending: false })
+    .limit(500);
+
+  if (rErr) return toastError(rErr.message);
+  if (!records || !records.length) {
+    document.getElementById('trackingResultArea').innerHTML = `
+      <div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center">
+        <p class="text-sm text-blue-700 dark:text-blue-300 bangla-text">
+          ℹ️ ${escapeHtml(studentName)}-এর কোনো হাজিরা পাওয়া যায়নি
+        </p>
+      </div>`;
+    return;
+  }
+
+  const uniqueDevices = new Set(records.map(r => r.device_id)).size;
+  const firstDate = records[records.length - 1]?.marked_at;
+  const lastDate = records[0]?.marked_at;
+  const flags = detectSuspicious(records);
+  const student = records[0].students;
+
+  renderTrackingResult({
+    type: 'student',
+    title: `ছাত্র: ${studentName} (রোল: ${student?.class_roll})`,
+    records,
+    summary: {
+      totalAttendances: records.length,
+      uniqueDevices,
+      firstDate,
+      lastDate,
+      student
+    },
+    flags
+  });
 }
 
 function renderTrackingResult({ type, title, records, summary, flags }) {
