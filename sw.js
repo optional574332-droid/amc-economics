@@ -1,13 +1,13 @@
 // ============================================================
 // Service Worker — AMC অর্থনীতি হাজিরা সিস্টেম
-// Version: v5.0 (Confirmation Screen + Tracking)
-// Updated: 2026-10-11
+// Version: v6.0 (Session Filter + Exact Match + PWA)
+// Updated: 2026-10-14
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v5';
-const STATIC_CACHE  = 'amc-static-v5';
-const DYNAMIC_CACHE = 'amc-dynamic-v5';
-const CDN_CACHE     = 'amc-cdn-v5';
+const CACHE_NAME    = 'amc-attendance-v6';
+const STATIC_CACHE  = 'amc-static-v6';
+const DYNAMIC_CACHE = 'amc-dynamic-v6';
+const CDN_CACHE     = 'amc-cdn-v6';
 
 const urlsToCache = [
   './',
@@ -32,8 +32,11 @@ function isCDNRequest(url) {
          url.includes('fonts.gstatic.com');
 }
 
+// ============================================================
+// INSTALL
+// ============================================================
 self.addEventListener('install', event => {
-  console.log('🔧 Service Worker v5 installing...');
+  console.log('🔧 Service Worker v6 installing...');
   event.waitUntil(
     Promise.all([
       caches.open(CACHE_NAME).then(cache =>
@@ -48,15 +51,18 @@ self.addEventListener('install', event => {
       )
     ])
     .then(() => {
-      console.log('✅ Service Worker v5 installed');
+      console.log('✅ Service Worker v6 installed');
       return self.skipWaiting();
     })
     .catch(err => console.log('❌ Install failed:', err))
   );
 });
 
+// ============================================================
+// ACTIVATE — পুরোনো ক্যাশ মুছে ফেলা
+// ============================================================
 self.addEventListener('activate', event => {
-  console.log('🔧 Service Worker v5 activating...');
+  console.log('🔧 Service Worker v6 activating...');
   const validCaches = [CACHE_NAME, STATIC_CACHE, DYNAMIC_CACHE, CDN_CACHE];
   event.waitUntil(
     caches.keys()
@@ -69,19 +75,27 @@ self.addEventListener('activate', event => {
         })
       ))
       .then(() => {
-        console.log('✅ Service Worker v5 activated');
+        console.log('✅ Service Worker v6 activated');
         return self.clients.claim();
       })
       .catch(err => console.log('❌ Activate failed:', err))
   );
 });
 
+// ============================================================
+// FETCH — Network First with Cache Fallback
+// ============================================================
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = event.request.url;
+  
+  // Supabase API কল ক্যাশ করা যাবে না
   if (url.includes('.supabase.co')) return;
+  
+  // Chrome extension বাদ
   if (url.startsWith('chrome-extension://')) return;
 
+  // CDN রিকোয়েস্ট — Cache First
   if (isCDNRequest(url)) {
     event.respondWith(
       caches.open(CDN_CACHE).then(cache =>
@@ -101,6 +115,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // বাকি সব রিকোয়েস্ট — Network First with Cache Fallback
   event.respondWith(
     fetch(event.request)
       .then(response => {
@@ -129,6 +144,9 @@ self.addEventListener('fetch', event => {
   );
 });
 
+// ============================================================
+// MESSAGE — ক্যাশ ক্লিয়ার
+// ============================================================
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
@@ -138,4 +156,4 @@ self.addEventListener('message', event => {
   }
 });
 
-console.log('✅ Service Worker v5 loaded');
+console.log('✅ Service Worker v6 loaded');
