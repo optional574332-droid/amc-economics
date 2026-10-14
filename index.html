@@ -164,6 +164,13 @@
   <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
     <h1 class="text-white font-bold text-lg bangla-text">🎓 AMC অর্থনীতি</h1>
     <div class="flex gap-2 text-sm items-center">
+      
+      <!-- 📲 PWA INSTALL BUTTON -->
+      <button id="installBtn" onclick="installPWA()" 
+        class="hidden bg-emerald-500 text-white px-3 py-2 rounded-lg btn-pop bangla-text text-sm animate-pulse">
+        📲 ইনস্টল
+      </button>
+
       <button onclick="toggleTheme()" id="themeToggleBtn" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop text-lg">🌙</button>
       <button onclick="showSection('adminLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop bangla-text">অ্যাডমিন</button>
       <button onclick="showSection('teacherLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop bangla-text">শিক্ষক</button>
@@ -295,6 +302,59 @@ if (!deviceId) {
   deviceId = 'dev_' + Math.random().toString(36).slice(2) + Date.now();
   localStorage.setItem('amc_device_id', deviceId);
 }
+
+// ============================================================
+// 📲 PWA INSTALL
+// ============================================================
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  const btn = document.getElementById('installBtn');
+  if (btn) {
+    btn.classList.remove('hidden');
+    console.log('✅ PWA Install prompt ready');
+  }
+});
+
+async function installPWA() {
+  if (!deferredPrompt) {
+    Swal.fire({
+      title: '📲 অ্যাপ ইনস্টল',
+      html: `
+        <div class="text-left text-sm bangla-text">
+          <p class="mb-2"><b>Android (Chrome):</b></p>
+          <p class="mb-3">ব্রাউজারের উপরে ৩ ডট (⋮) মেনু → "Install app" অথবা "Add to Home screen"</p>
+          <p class="mb-2"><b>iPhone (Safari):</b></p>
+          <p class="mb-3">নিচে Share (⬆️) বাটন → "Add to Home Screen"</p>
+        </div>
+      `,
+      icon: 'info',
+      confirmButtonText: 'বুঝেছি',
+      confirmButtonColor: '#4F46E5'
+    });
+    return;
+  }
+  
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  
+  if (outcome === 'accepted') {
+    toastSuccess('🎉 অ্যাপ ইনস্টল হয়েছে!');
+    document.getElementById('installBtn').classList.add('hidden');
+  } else {
+    toastInfo('ইনস্টল বাতিল');
+  }
+  deferredPrompt = null;
+}
+
+window.addEventListener('appinstalled', () => {
+  const btn = document.getElementById('installBtn');
+  if (btn) btn.classList.add('hidden');
+  console.log('✅ PWA installed');
+  toastSuccess('🎉 অ্যাপ ইনস্টল সম্পন্ন!');
+});
 
 // ============================================================
 // 🔢 Helpers
@@ -608,26 +668,60 @@ function showAttendanceForm() {
   input.focus();
 }
 
+// ============================================================
+// 🎯 নতুন: সেশন ও ইয়ার ফিল্টার + Exact Match + Partial Match
+// ============================================================
 async function loadStudentSuggestions(query) {
   const s = currentPinSession;
+  if (!s) return;
+
+  // অফলাইন হ্যান্ডলিং
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + s.session + '_' + s.year);
     if (cached) {
       const all = JSON.parse(cached);
-      const filtered = all.filter(st =>
-        (st.class_roll && st.class_roll.toLowerCase().includes(query.toLowerCase())) ||
-        (st.reg_no && st.reg_no.toLowerCase().includes(query.toLowerCase()))
-      ).slice(0, 10);
-      return renderSuggestions(filtered);
+      let filtered = all.filter(st =>
+        (st.class_roll && st.class_roll.toString() === query) ||
+        (st.reg_no && st.reg_no.toString() === query)
+      );
+      if (filtered.length === 0) {
+        filtered = all.filter(st =>
+          (st.class_roll && st.class_roll.toString().includes(query)) ||
+          (st.reg_no && st.reg_no.toString().includes(query))
+        );
+      }
+      return renderSuggestions(filtered.slice(0, 10));
     }
     return;
   }
-  const { data: students } = await db.from('students')
-    .select('id, name, class_roll, reg_no')
-    .eq('session', s.session).eq('year', s.year).eq('status', 'active')
-    .or(`class_roll.ilike.%${query}%,reg_no.ilike.%${query}%`)
-    .limit(10);
-  renderSuggestions(students || []);
+
+  try {
+    // ১. Exact Match (হুবহু মিল) — শুধু সেই সেশন ও ইয়ারে
+    let { data: exactMatch } = await db.from('students')
+      .select('id, name, class_roll, reg_no')
+      .eq('session', s.session)
+      .eq('year', s.year)
+      .eq('status', 'active')
+      .or(`class_roll.eq.${query},reg_no.eq.${query}`)
+      .limit(5);
+
+    // ২. Exact Match না পেলে Partial Match — তবুও সেশন ও ইয়ার সীমিত
+    if (!exactMatch || exactMatch.length === 0) {
+      const { data: partialMatch } = await db.from('students')
+        .select('id, name, class_roll, reg_no')
+        .eq('session', s.session)
+        .eq('year', s.year)
+        .eq('status', 'active')
+        .or(`class_roll.ilike.%${query}%,reg_no.ilike.%${query}%`)
+        .limit(10);
+      exactMatch = partialMatch || [];
+    }
+
+    renderSuggestions(exactMatch);
+  } catch (err) {
+    console.error('Suggestion error:', err);
+    renderSuggestions([]);
+  }
 }
 
 function renderSuggestions(students) {
@@ -677,8 +771,11 @@ async function findAndSubmit() {
   if (!roll) return toastWarning('রোল লিখুন');
 
   const s = currentPinSession;
+  if (!s) return toastError('সেশন পাওয়া যায়নি, আবার PIN দিন');
+
   let student = null;
 
+  // অফলাইন
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + s.session + '_' + s.year);
     if (cached) {
@@ -686,16 +783,35 @@ async function findAndSubmit() {
       student = all.find(st => st.class_roll === roll || st.reg_no === roll);
     }
   } else {
-    const { data } = await db.from('students')
+    // ১. Exact Match প্রথমে
+    const { data: exactData } = await db.from('students')
       .select('id, name, class_roll, reg_no')
-      .eq('session', s.session).eq('year', s.year).eq('status', 'active')
+      .eq('session', s.session)
+      .eq('year', s.year)
+      .eq('status', 'active')
       .or(`class_roll.eq.${roll},reg_no.eq.${roll}`)
-      .maybeSingle();
-    student = data;
+      .limit(1);
+
+    if (exactData && exactData.length > 0) {
+      student = exactData[0];
+    } else {
+      // ২. Exact না পেলে Partial Match
+      const { data: partialData } = await db.from('students')
+        .select('id, name, class_roll, reg_no')
+        .eq('session', s.session)
+        .eq('year', s.year)
+        .eq('status', 'active')
+        .or(`class_roll.ilike.%${roll}%,reg_no.ilike.%${roll}%`)
+        .limit(1);
+      
+      if (partialData && partialData.length > 0) {
+        student = partialData[0];
+      }
+    }
   }
 
   if (!student) {
-    document.getElementById('studentPreview').innerHTML = `<p class="text-red-500 text-center text-sm font-bold bangla-text">❌ এই রোলে কোনো ছাত্র নেই</p>`;
+    document.getElementById('studentPreview').innerHTML = `<p class="text-red-500 text-center text-sm font-bold bangla-text">❌ এই রোলে (${escapeHtml(roll)}) কোনো ছাত্র নেই</p>`;
     return;
   }
 
@@ -2075,6 +2191,9 @@ async function showTeacherTab(tab) {
         <button onclick="generatePin()" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">🎲 PIN তৈরি</button>
         <div id="pinDisplay"></div>
       </div>`;
+    // আজকের তারিখ অটো-ফিল
+    const dateInput = document.getElementById('atDate');
+    if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
   }
   else if (tab === 'liveReport') {
     el.innerHTML = `
@@ -2093,11 +2212,12 @@ async function showTeacherTab(tab) {
   else if (tab === 'manualEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     const courseOpts = myCourses?.map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white bangla-text">✍️ ম্যানুয়াল হাজিরা</h3>
         <select id="meCourse" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">${courseOpts}</select>
-        <input type="date" id="meDate" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+        <input type="date" id="meDate" value="${today}" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 bangla-text">🔍 নাম / রোল / রেজি দিয়ে খুঁজুন</label>
         <input id="meSearch" placeholder="যেমন: রহিম / 101 / I-345" autocomplete="off" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         <div id="meSuggestionBox" class="hidden"></div>
@@ -2251,11 +2371,42 @@ async function searchStudentForManual(query) {
   const cv = document.getElementById('meCourse').value;
   if (!cv) return;
   const [, session, year] = cv.split('|');
-  const { data: students } = await db.from('students')
+
+  // অফলাইন
+  if (!navigator.onLine) {
+    const cached = localStorage.getItem('amc_students_' + session + '_' + year);
+    if (cached) {
+      const all = JSON.parse(cached);
+      let filtered = all.filter(st => st.class_roll === query || st.reg_no === query);
+      if (filtered.length === 0) {
+        filtered = all.filter(st => (st.class_roll && st.class_roll.includes(query)) || (st.reg_no && st.reg_no.includes(query)));
+      }
+      renderManualSuggestions(filtered);
+    }
+    return;
+  }
+
+  // ১. Exact Match প্রথমে
+  let { data: exactMatch } = await db.from('students')
     .select('id, name, class_roll, reg_no')
     .eq('session', session).eq('year', year).eq('status', 'active')
-    .or(`name.ilike.%${query}%,class_roll.ilike.%${query}%,reg_no.ilike.%${query}%`)
-    .limit(10);
+    .or(`class_roll.eq.${query},reg_no.eq.${query}`)
+    .limit(5);
+
+  // ২. Exact না পেলে Partial Match
+  if (!exactMatch || exactMatch.length === 0) {
+    const { data: partialMatch } = await db.from('students')
+      .select('id, name, class_roll, reg_no')
+      .eq('session', session).eq('year', year).eq('status', 'active')
+      .or(`class_roll.ilike.%${query}%,reg_no.ilike.%${query}%`)
+      .limit(10);
+    exactMatch = partialMatch || [];
+  }
+
+  renderManualSuggestions(exactMatch);
+}
+
+function renderManualSuggestions(students) {
   const box = document.getElementById('meSuggestionBox');
   if (!students || !students.length) {
     box.classList.remove('hidden');
@@ -2481,7 +2632,9 @@ async function manualAttendance() {
   const [course_code, session, year] = cv.split('|');
   showGlobalLoader();
   try {
-    let { data: sess } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('session', session).eq('year', year).eq('course_code', course_code).eq('date', date).maybeSingle();
+    let { data: sess } = await db.from('attendance_sessions').select('*')
+      .eq('teacher_id', currentTeacher.id).eq('session', session).eq('year', year)
+      .eq('course_code', course_code).eq('date', date).maybeSingle();
     if (!sess) {
       const { data: pd, error: pe } = await db.rpc('teacher_create_session', {
         p_teacher_id: currentTeacher.id, p_session: session, p_year: year,
@@ -2491,13 +2644,17 @@ async function manualAttendance() {
       const { data: ns } = await db.from('attendance_sessions').select('*').eq('id', pd.session_id).maybeSingle();
       sess = ns;
     }
-    const { data: student } = await db.from('students').select('id, name').eq('session', session).eq('year', year).eq('status', 'active').or(`class_roll.eq.${roll},reg_no.eq.${roll}`).maybeSingle();
-    if (!student) return toastError('ছাত্র পাওয়া যায়নি');
+    if (!sess) return toastError('সেশন আইডি পাওয়া যায়নি');
+    const { data: student } = await db.from('students').select('id, name')
+      .eq('session', session).eq('year', year).eq('status', 'active')
+      .or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(1);
+    const stu = student && student.length > 0 ? student[0] : null;
+    if (!stu) return toastError('ছাত্র পাওয়া যায়নি');
     const { error } = await db.from('attendance_records').upsert({
-      session_id: sess.id, student_id: student.id, status, marked_by: currentTeacher.id
+      session_id: sess.id, student_id: stu.id, status, marked_by: currentTeacher.id
     }, { onConflict: 'session_id,student_id' });
     if (error) return toastError(error.message);
-    toastSuccess('সেভ: ' + student.name);
+    toastSuccess('সেভ: ' + stu.name);
     document.getElementById('meRoll').value = '';
     document.getElementById('meSearch').value = '';
   } finally { hideGlobalLoader(); }
