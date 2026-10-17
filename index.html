@@ -163,7 +163,7 @@
 <nav class="bg-white/10 dark:bg-black/30 backdrop-blur-md shadow-lg sticky top-0 z-40">
   <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
     <h1 class="text-white font-bold text-lg bangla-text">🎓 AMC অর্থনীতি</h1>
-    <div class="flex gap-2 text-sm items-center">
+    <div class="flex gap-2 text-sm items-center flex-wrap justify-end">
       
       <!-- 📲 PWA INSTALL BUTTON -->
       <button id="installBtn" onclick="installPWA()" 
@@ -171,6 +171,7 @@
         📲 ইনস্টল
       </button>
 
+      <button onclick="showSection('teacherDirectory')" class="bg-cyan-500 text-white px-3 py-2 rounded-lg btn-pop bangla-text">👨‍🏫 ডিরেক্টরি</button>
       <button onclick="toggleTheme()" id="themeToggleBtn" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop text-lg">🌙</button>
       <button onclick="showSection('adminLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop bangla-text">অ্যাডমিন</button>
       <button onclick="showSection('teacherLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop bangla-text">শিক্ষক</button>
@@ -189,6 +190,15 @@
       placeholder="0000">
     <button onclick="submitPin()" class="w-full mt-5 bg-indigo-600 text-white text-2xl font-bold py-4 rounded-2xl btn-pop hover:bg-indigo-700 shadow-lg bangla-text">সাবমিট</button>
     <p class="text-xs text-gray-400 dark:text-gray-500 mt-4 bangla-text">💡 একই মোবাইল থেকে একাধিক ছাত্র হাজিরা দিতে পারবে</p>
+  </div>
+</section>
+
+<!-- Teacher Directory Section -->
+<section id="teacherDirectorySection" class="hidden fade-in max-w-4xl mx-auto mt-6 px-4">
+  <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-6">
+    <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-4 bangla-text">👨‍🏫 শিক্ষক পরিচিতি</h2>
+    <input id="dirSearch" placeholder="নাম দিয়ে খুঁজুন..." class="w-full border-2 rounded-xl p-3 mb-4 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text" oninput="loadTeacherDirectory()">
+    <div id="directoryList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
   </div>
 </section>
 
@@ -230,8 +240,10 @@
     </div>
     <div class="flex gap-2 mb-6 flex-wrap text-sm">
       <button onclick="showAdminTab('manageTeacher')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">শিক্ষক</button>
+      <button onclick="showAdminTab('academicSetup')" class="bg-teal-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">একাডেমিক</button>
       <button onclick="showAdminTab('manageStudent')" class="bg-emerald-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">ছাত্র</button>
       <button onclick="showAdminTab('mapCourse')" class="bg-cyan-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">কোর্স ম্যাপিং</button>
+      <button onclick="showAdminTab('routine')" class="bg-purple-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">রুটিন</button>
       <button onclick="showAdminTab('reports')" class="bg-amber-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">রিপোর্ট</button>
       <button onclick="showAdminTab('sessionMgmt')" class="bg-rose-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">সেশন</button>
       <button onclick="showAdminTab('notice')" class="bg-pink-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">নোটিশ</button>
@@ -258,6 +270,7 @@
       <button onclick="showTeacherTab('markEntry')" class="bg-purple-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">নম্বর এন্ট্রি</button>
       <button onclick="showTeacherTab('attendanceReport')" class="bg-teal-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">📊 হাজিরা রিপোর্ট</button>
       <button onclick="showTeacherTab('myCourses')" class="bg-cyan-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">📚 আমার কোর্স</button>
+      <button onclick="showTeacherTab('myRoutine')" class="bg-lime-600 text-white px-4 py-2 rounded-lg btn-pop bangla-text">📅 আমার রুটিন</button>
       <button onclick="showTeacherTab('tracking')" class="bg-orange-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">🔍 Tracking</button>
     </div>
     <div id="teacherContent"></div>
@@ -584,6 +597,38 @@ function showSection(id) {
   const t = document.getElementById(id + 'Section');
   if (t) { t.classList.remove('hidden'); t.classList.add('fade-in'); }
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (id === 'teacherDirectory') loadTeacherDirectory();
+}
+
+// ============================================================
+// Teacher Directory Loader
+// ============================================================
+async function loadTeacherDirectory() {
+  const search = (document.getElementById('dirSearch')?.value || '').trim().toLowerCase();
+  const el = document.getElementById('directoryList');
+  if (!el) return;
+  el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full">⏳ লোড হচ্ছে...</p>';
+  // শুধু প্রয়োজনীয় কলাম — যাতে PIN সংক্রান্ত কোনো তথ্য পাবলিকলি না আসে
+  const { data, error } = await db.from('teachers')
+    .select('id, name, designation, biography, mobile, is_active').order('name');
+  if (error) { el.innerHTML = `<p class="text-red-500 bangla-text col-span-full">❌ ${escapeHtml(error.message)}</p>`; return; }
+
+  const filtered = (data || []).filter(t => t.is_active !== false && (t.name || '').toLowerCase().includes(search));
+  if (!filtered.length) {
+    el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full">কোনো শিক্ষক পাওয়া যায়নি</p>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(t => `
+    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl border-l-4 border-cyan-500">
+      <h3 class="font-bold text-lg dark:text-white bangla-text">${escapeHtml(t.name)}</h3>
+      <p class="text-sm text-gray-500 dark:text-gray-400 bangla-text">${escapeHtml(t.designation || 'Teacher')}</p>
+      <p class="text-xs mt-2 dark:text-gray-300 bangla-text">${escapeHtml(t.biography || 'বিস্তারিত তথ্য যুক্ত করা হয়নি।')}</p>
+      <div class="mt-3 flex gap-2">
+        ${t.mobile ? `<a href="tel:${escapeHtml(t.mobile)}" class="inline-block bg-indigo-600 text-white px-3 py-1 rounded-lg text-sm bangla-text">📞 কল করুন</a>` : ''}
+      </div>
+    </div>
+  `).join('');
 }
 
 // ============================================================
@@ -1007,6 +1052,25 @@ function showAdminTab(tab) {
       </div>`;
     loadTeachers();
   }
+  else if (tab === 'academicSetup') {
+    el.innerHTML = `
+      <div class="space-y-4 max-w-lg">
+        <h3 class="text-lg font-bold dark:text-white bangla-text">🎓 একাডেমিক সেটআপ</h3>
+        <div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl">
+          <h4 class="font-bold text-sm mb-3 dark:text-white bangla-text">📚 নতুন কোর্স যোগ করুন</h4>
+          <select id="acCategory" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+            <option>Higher Secondary</option><option>Honours</option><option>Masters</option>
+          </select>
+          <select id="acYear" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+            <option>XI</option><option>XII</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option><option>Preliminary</option><option>Final</option>
+          </select>
+          <input id="acName" placeholder="কোর্সের নাম (যেমন: Macroeconomics)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+          <input id="acCode" placeholder="কোর্স কোড (যেমন: 22205)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <input id="acShort" placeholder="শর্ট কোড (যেমন: Macro)" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <button onclick="addAcademicCourse()" class="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">সংরক্ষণ</button>
+        </div>
+      </div>`;
+  }
   else if (tab === 'manageStudent') {
     el.innerHTML = `
       ${sessionDatalist}
@@ -1037,6 +1101,26 @@ function showAdminTab(tab) {
       </div>`;
     loadTeachersDropdown();
     loadMappings();
+  }
+  else if (tab === 'routine') {
+    el.innerHTML = `
+      <div class="space-y-4 max-w-lg">
+        <h3 class="text-lg font-bold dark:text-white bangla-text">📅 ক্লাস রুটিন তৈরি</h3>
+        <div class="bg-purple-50 dark:bg-purple-900/30 p-4 rounded-xl">
+          <select id="rtDay" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+            <option>Sunday</option><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option>
+          </select>
+          <input id="rtTime" placeholder="সময় (যেমন: 09:00-09:45)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <select id="rtYear" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+            <option>XI</option><option>XII</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option><option>Preliminary</option><option>Final</option>
+          </select>
+          <input id="rtCourse" placeholder="কোর্স কোড" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <select id="rtTeacher" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text"></select>
+          <input id="rtRoom" placeholder="রুম নম্বর" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <button onclick="saveRoutine()" class="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">রুটিনে যোগ করুন</button>
+        </div>
+      </div>`;
+    loadTeachersDropdown();
   }
   else if (tab === 'reports') {
     el.innerHTML = `
@@ -1106,6 +1190,69 @@ function showAdminTab(tab) {
         <div id="backupStatus" class="text-sm bangla-text"></div>
       </div>`;
   }
+}
+
+// ============================================================
+// কোর্স ড্রপডাউন: ডুপ্লিকেট কোর্স বাদ দেওয়ার হেল্পার
+// ============================================================
+function dedupeCourses(list) {
+  const seen = new Set();
+  const unique = [];
+  (list || []).forEach(c => {
+    const key = `${c.course_code}|${c.session}|${c.year}`;
+    if (!seen.has(key)) { seen.add(key); unique.push(c); }
+  });
+  return unique;
+}
+
+// ============================================================
+// Academic Course Add & Routine Save
+// ============================================================
+async function addAcademicCourse() {
+  const cat = document.getElementById('acCategory').value;
+  const year = document.getElementById('acYear').value;
+  const name = document.getElementById('acName').value.trim();
+  const code = document.getElementById('acCode').value.trim();
+  const short = document.getElementById('acShort').value.trim();
+  if (!name || !code) return toastWarning('কোর্সের নাম ও কোড দিন');
+  showGlobalLoader();
+  try {
+    const { error } = await db.from('courses_new').insert([{
+      category: cat, year_name: year, course_name: name, course_code: code, short_code: short
+    }]);
+    if (error) throw error;
+    toastSuccess('কোর্স যোগ হয়েছে');
+    document.getElementById('acName').value = '';
+    document.getElementById('acCode').value = '';
+    document.getElementById('acShort').value = '';
+  } catch (e) { toastError(e.message); }
+  finally { hideGlobalLoader(); }
+}
+
+async function saveRoutine() {
+  const day = document.getElementById('rtDay').value;
+  const time = document.getElementById('rtTime').value.trim();
+  const year = document.getElementById('rtYear').value;
+  const course = document.getElementById('rtCourse').value.trim();
+  const teacher = document.getElementById('rtTeacher').value;
+  const room = document.getElementById('rtRoom').value.trim();
+  let cat = 'Honours';
+  if (year === 'XI' || year === 'XII') cat = 'Higher Secondary';
+  else if (year === 'Preliminary' || year === 'Final') cat = 'Masters';
+  if (!time || !course || !teacher) return toastWarning('সময়, কোর্স ও শিক্ষক দিন');
+  showGlobalLoader();
+  try {
+    const { error } = await db.from('class_routines').insert([{
+      day_name: day, time_slot: time, year_name: year, course_code: course,
+      teacher_id: teacher, room_no: room, category: cat
+    }]);
+    if (error) throw error;
+    toastSuccess('রুটিনে যোগ হয়েছে');
+    document.getElementById('rtTime').value = '';
+    document.getElementById('rtCourse').value = '';
+    document.getElementById('rtRoom').value = '';
+  } catch (e) { toastError(e.message); }
+  finally { hideGlobalLoader(); }
 }
 
 // ============================================================
@@ -1560,7 +1707,11 @@ async function deleteStudentPermanently(id, name) {
 // ============================================================
 async function loadTeachersDropdown() {
   const { data } = await db.from('teachers').select('id, name').order('name');
-  document.getElementById('mapTeacher').innerHTML = data?.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('') || '';
+  const opts = data?.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('') || '';
+  ['mapTeacher', 'rtTeacher'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) sel.innerHTML = opts;
+  });
 }
 
 async function saveMapping() {
@@ -2182,7 +2333,7 @@ async function showTeacherTab(tab) {
       return;
     }
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = myCourses?.map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white bangla-text">📝 হাজিরা নিন</h3>
@@ -2211,7 +2362,7 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'manualEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = myCourses?.map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
@@ -2238,7 +2389,7 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'markEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = myCourses?.map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
     el.innerHTML = `
       <div class="space-y-4">
         <h3 class="text-lg font-bold dark:text-white bangla-text">📊 নম্বর এন্ট্রি</h3>
@@ -2260,7 +2411,7 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'attendanceReport') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = '<option value="">সব কোর্স</option>' + (myCourses?.map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '');
+    const courseOpts = '<option value="">সব কোর্স</option>' + (dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '');
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4">
@@ -2298,6 +2449,28 @@ async function showTeacherTab(tab) {
             <p class="font-bold text-gray-800 dark:text-white bangla-text">${c.course_name ? escapeHtml(c.course_name) + '-' : ''}<span class="num-display">${escapeHtml(c.course_code)}</span></p>
             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 bangla-text">📅 <span class="num-display">${escapeHtml(c.session)}</span> · <span class="num-display">${escapeHtml(c.year)}</span></p>
             <p class="text-xs text-cyan-700 dark:text-cyan-300 mt-2 bangla-text">📊 <span class="num-display">${c.sessionCount}</span> টি ক্লাস</p>
+          </div>`).join('')}
+      </div>`;
+  }
+  else if (tab === 'myRoutine') {
+    el.innerHTML = '<p class="text-center text-gray-500 py-8 bangla-text">⏳ লোড হচ্ছে...</p>';
+    const { data: routines, error } = await db.from('class_routines').select('*').eq('teacher_id', currentTeacher.id);
+    if (error) { el.innerHTML = `<p class="text-red-500 text-center py-8 bangla-text">❌ ${escapeHtml(error.message)}</p>`; return; }
+    if (!routines || !routines.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8 bangla-text">আপনার জন্য কোনো রুটিন নেই</p>'; return; }
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const bnDay = { Sunday: 'রবিবার', Monday: 'সোমবার', Tuesday: 'মঙ্গলবার', Wednesday: 'বুধবার', Thursday: 'বৃহস্পতিবার', Friday: 'শুক্রবার', Saturday: 'শনিবার' };
+    const todayName = days[new Date().getDay()];
+    el.innerHTML = `
+      <h3 class="text-lg font-bold dark:text-white mb-4 bangla-text">📅 আমার ক্লাস রুটিন</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        ${days.filter(d => routines.some(r => r.day_name === d)).map(d => `
+          <div class="p-4 rounded-xl border-2 ${d === todayName ? 'border-lime-500 bg-lime-50 dark:bg-lime-900/20' : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700'}">
+            <p class="font-bold mb-2 dark:text-white bangla-text">${bnDay[d]} ${d === todayName ? '<span class="text-xs bg-lime-600 text-white px-2 py-0.5 rounded-full">আজ</span>' : ''}</p>
+            ${routines.filter(r => r.day_name === d).sort((a, b) => String(a.time_slot).localeCompare(String(b.time_slot))).map(r => `
+              <div class="flex justify-between items-center text-sm py-1 border-t border-gray-200 dark:border-gray-600 dark:text-gray-200">
+                <span class="num-display">${escapeHtml(r.time_slot)}</span>
+                <span class="bangla-text"><span class="num-display">${escapeHtml(r.course_code)}</span> · ${escapeHtml(r.year_name || '')}${r.room_no ? ` · রুম <span class="num-display">${escapeHtml(r.room_no)}</span>` : ''}</span>
+              </div>`).join('')}
           </div>`).join('')}
       </div>`;
   }
