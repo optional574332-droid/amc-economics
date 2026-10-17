@@ -509,23 +509,37 @@ function queueAttendance(pin, roll) {
   saveOfflineQueue(q);
   updateOnlineStatus();
 }
+let isSyncingOffline = false;
 async function syncOfflineQueue() {
+  if (isSyncingOffline) return;          // একসাথে একাধিক sync এবং অসীম লুপ ঠেকায়
   const q = getOfflineQueue();
   if (!q.length) return;
-  const remaining = [];
-  let synced = 0;
-  for (const item of q) {
-    try {
-      const { data, error } = await db.rpc('student_mark_attendance_v2', {
-        p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId
-      });
-      if (error || !data.ok) synced++;
-      else synced++;
-    } catch (e) { remaining.push(item); }
+  isSyncingOffline = true;
+  try {
+    const remaining = [];
+    let synced = 0;
+    for (const item of q) {
+      try {
+        const { data, error } = await db.rpc('student_mark_attendance_v2', {
+          p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId
+        });
+        if (error || !data?.ok) {
+          remaining.push(item);
+        } else {
+          synced++;
+        }
+      } catch (e) {
+        remaining.push(item);
+      }
+    }
+    // sync চলাকালীন নতুন যে হাজিরা queue-তে যোগ হয়েছে তা হারিয়ে যাবে না
+    const added = getOfflineQueue().slice(q.length);
+    saveOfflineQueue(remaining.concat(added));
+    if (synced > 0) toastSuccess(`${synced} টি হাজিরা sync হয়েছে`);
+    updateOnlineStatus();
+  } finally {
+    isSyncingOffline = false;
   }
-  saveOfflineQueue(remaining);
-  if (synced > 0) toastSuccess(`${synced} টি হাজিরা sync হয়েছে`);
-  updateOnlineStatus();
 }
 
 // ============================================================
@@ -1128,32 +1142,55 @@ async function showAdminTab(tab) {
       ${sessionDatalist}
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white bangla-text">🔗 শিক্ষক-কোর্স ম্যাপিং</h3>
-        <select id="mapTeacher" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text"></select>
+        
+        <select id="mapTeacher" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+          <option value="">শিক্ষক সিলেক্ট করুন</option>
+        </select>
+        
         <input id="mapSession" placeholder="সেশন" list="sessionOptions" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
-        <select id="mapYear" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">${yearOpts}</select>
-        <input id="mapCourse" placeholder="কোর্স কোড" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-        <input id="mapCourseName" placeholder="কোর্সের সংক্ষিপ্ত নাম" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+        
+        <select id="mapYear" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+          <option value="">ইয়ার সিলেক্ট করুন</option>${yearOpts}
+        </select>
+
+        <select id="mapCourseSelect" onchange="fillCourseDetails()" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+          <option value="">কোর্স সিলেক্ট করুন</option>
+        </select>
+
+        <input id="mapCourse" placeholder="কোর্স কোড" readonly class="w-full border-2 rounded-xl p-3 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600">
+        <input id="mapCourseName" placeholder="কোর্সের নাম" readonly class="w-full border-2 rounded-xl p-3 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600 bangla-text">
+        
         <button onclick="saveMapping()" class="bg-cyan-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">সংরক্ষণ</button>
         <div id="mappingList" class="mt-4"></div>
       </div>`;
     loadTeachersDropdown();
+    loadAcademicCoursesForMap();
     loadMappings();
   }
   else if (tab === 'routine') {
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white bangla-text">📅 ক্লাস রুটিন তৈরি</h3>
-        <div class="bg-purple-50 dark:bg-purple-900/30 p-4 rounded-xl">
+        <div class="bg-purple-50 dark:bg-purple-900/30 p-4 rounded-xl space-y-2">
           <select id="rtDay" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
             <option>Sunday</option><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option>
           </select>
           <input id="rtTime" placeholder="সময় (যেমন: 09:00-09:45)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-          <select id="rtYear" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+          
+          <select id="rtYear" onchange="loadAcademicCoursesForRoutine()" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+            <option value="">ইয়ার সিলেক্ট করুন</option>
             <option>XI</option><option>XII</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option><option>Preliminary</option><option>Final</option>
           </select>
-          <input id="rtCourse" placeholder="কোর্স কোড" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+
+          <select id="rtCourseSelect" onchange="fillRoutineCourse()" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+            <option value="">কোর্স সিলেক্ট করুন</option>
+          </select>
+
+          <input id="rtCourse" placeholder="কোর্স কোড" readonly class="w-full border-2 rounded-xl p-3 mb-2 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600">
+          
           <select id="rtTeacher" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text"></select>
           <input id="rtRoom" placeholder="রুম নম্বর" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          
           <button onclick="saveRoutine()" class="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">রুটিনে যোগ করুন</button>
         </div>
       </div>`;
@@ -1245,6 +1282,107 @@ function dedupeCourses(list) {
 // ============================================================
 // Academic Course Add & Routine Save
 // ============================================================
+// ============================================================
+// ✅ Helper Functions for Dropdown + Non-Major Manual Entry
+// ============================================================
+function attrEsc(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function loadAcademicCoursesForMap() {
+  const { data } = await db.from('courses_new').select('*').order('course_code');
+  const sel = document.getElementById('mapCourseSelect');
+  if (sel) {
+    sel.innerHTML = '<option value="">কোর্স সিলেক্ট করুন</option>' + 
+      (data || []).map(c => `<option value="${attrEsc(c.course_code)}|${attrEsc(c.course_name)}">${escapeHtml(c.course_code)} - ${escapeHtml(c.course_name)}</option>`).join('') +
+      '<option value="NON_MAJOR">✍️ Other / Non-Major (Manual Entry)</option>';
+  }
+}
+
+function fillCourseDetails() {
+  const sel = document.getElementById('mapCourseSelect');
+  const codeInput = document.getElementById('mapCourse');
+  const nameInput = document.getElementById('mapCourseName');
+
+  if (!sel || !sel.value) {
+    codeInput.value = ''; nameInput.value = '';
+    codeInput.readOnly = true; nameInput.readOnly = true;
+    codeInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+    nameInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+    codeInput.placeholder = "কোর্স কোড";
+    nameInput.placeholder = "কোর্সের নাম";
+    return;
+  }
+
+  if (sel.value === 'NON_MAJOR') {
+    codeInput.value = ''; nameInput.value = '';
+    codeInput.readOnly = false; nameInput.readOnly = false;
+    codeInput.classList.remove('bg-gray-100', 'dark:bg-gray-600');
+    nameInput.classList.remove('bg-gray-100', 'dark:bg-gray-600');
+    codeInput.placeholder = "ম্যানুয়ালি কোর্স কোড লিখুন";
+    nameInput.placeholder = "ম্যানুয়ালি কোর্সের নাম লিখুন";
+    codeInput.focus();
+  } else {
+    const idx = sel.value.indexOf('|');
+    const code = idx === -1 ? sel.value : sel.value.slice(0, idx);
+    const name = idx === -1 ? '' : sel.value.slice(idx + 1);
+    codeInput.value = code; nameInput.value = name;
+    codeInput.readOnly = true; nameInput.readOnly = true;
+    codeInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+    nameInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+  }
+}
+
+async function loadAcademicCoursesForRoutine() {
+  const year = document.getElementById('rtYear').value;
+  const sel = document.getElementById('rtCourseSelect');
+  const codeInput = document.getElementById('rtCourse');
+  
+  if (!year) {
+    if (sel) sel.innerHTML = '<option value="">কোর্স সিলেক্ট করুন</option>';
+    codeInput.value = '';
+    codeInput.readOnly = true;
+    codeInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+    return;
+  }
+
+  let cat = 'Honours';
+  if (year === 'XI' || year === 'XII') cat = 'Higher Secondary';
+  else if (year === 'Preliminary' || year === 'Final') cat = 'Masters';
+
+  const { data } = await db.from('courses_new').select('*').eq('category', cat).eq('year_name', year).order('course_code');
+  if (sel) {
+    sel.innerHTML = '<option value="">কোর্স সিলেক্ট করুন</option>' + 
+      (data || []).map(c => `<option value="${attrEsc(c.course_code)}">${escapeHtml(c.course_code)} - ${escapeHtml(c.course_name)}</option>`).join('') +
+      '<option value="NON_MAJOR">✍️ Other / Non-Major (Manual Entry)</option>';
+  }
+  codeInput.value = '';
+  codeInput.readOnly = true;
+  codeInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+}
+
+function fillRoutineCourse() {
+  const sel = document.getElementById('rtCourseSelect');
+  const codeInput = document.getElementById('rtCourse');
+
+  if (!sel || !sel.value) {
+    codeInput.value = ''; codeInput.readOnly = true;
+    codeInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+    codeInput.placeholder = "কোর্স কোড";
+    return;
+  }
+
+  if (sel.value === 'NON_MAJOR') {
+    codeInput.value = ''; codeInput.readOnly = false;
+    codeInput.classList.remove('bg-gray-100', 'dark:bg-gray-600');
+    codeInput.placeholder = "ম্যানুয়ালি কোর্স কোড লিখুন";
+    codeInput.focus();
+  } else {
+    codeInput.value = sel.value; codeInput.readOnly = true;
+    codeInput.classList.add('bg-gray-100', 'dark:bg-gray-600');
+  }
+}
+
 async function addAcademicCourse() {
   const cat = document.getElementById('acCategory').value;
   const year = document.getElementById('acYear').value;
@@ -1276,7 +1414,7 @@ async function saveRoutine() {
   let cat = 'Honours';
   if (year === 'XI' || year === 'XII') cat = 'Higher Secondary';
   else if (year === 'Preliminary' || year === 'Final') cat = 'Masters';
-  if (!time || !course || !teacher) return toastWarning('সময়, কোর্স ও শিক্ষক দিন');
+  if (!time || !year || !course || !teacher) return toastWarning('সময়, ইয়ার, কোর্স ও শিক্ষক দিন');
   showGlobalLoader();
   try {
     const { error } = await db.from('class_routines').insert([{
@@ -1286,7 +1424,8 @@ async function saveRoutine() {
     if (error) throw error;
     toastSuccess('রুটিনে যোগ হয়েছে');
     document.getElementById('rtTime').value = '';
-    document.getElementById('rtCourse').value = '';
+    document.getElementById('rtCourseSelect').value = '';
+    fillRoutineCourse();
     document.getElementById('rtRoom').value = '';
   } catch (e) { toastError(e.message); }
   finally { hideGlobalLoader(); }
@@ -1744,11 +1883,11 @@ async function deleteStudentPermanently(id, name) {
 // ============================================================
 async function loadTeachersDropdown() {
   const { data } = await db.from('teachers').select('id, name').order('name');
-  const opts = data?.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('') || '';
-  ['mapTeacher', 'rtTeacher'].forEach(id => {
-    const sel = document.getElementById(id);
-    if (sel) sel.innerHTML = opts;
-  });
+  const opts = data?.map(t => `<option value="${attrEsc(t.id)}">${escapeHtml(t.name)}</option>`).join('') || '';
+  const mapSel = document.getElementById('mapTeacher');
+  if (mapSel) mapSel.innerHTML = '<option value="">শিক্ষক সিলেক্ট করুন</option>' + opts;
+  const rtSel = document.getElementById('rtTeacher');
+  if (rtSel) rtSel.innerHTML = opts;
 }
 
 async function saveMapping() {
@@ -1757,7 +1896,7 @@ async function saveMapping() {
   const year = document.getElementById('mapYear').value;
   const course_code = document.getElementById('mapCourse').value.trim().toUpperCase();
   const course_name = document.getElementById('mapCourseName').value.trim();
-  if (!teacher_id || !session || !course_code) return toastWarning('শিক্ষক, সেশন, কোর্স দিন');
+  if (!teacher_id || !session || !year || !course_code) return toastWarning('শিক্ষক, সেশন, ইয়ার, কোর্স দিন');
   showGlobalLoader();
   try {
     const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code });
@@ -1765,8 +1904,8 @@ async function saveMapping() {
     const { error: e2 } = await db.from('courses').upsert({ session, year, course_code, course_name: course_name || null }, { onConflict: 'session,year,course_code' });
     if (e2) console.error(e2);
     toastSuccess('ম্যাপিং সংরক্ষিত');
-    document.getElementById('mapCourse').value = '';
-    document.getElementById('mapCourseName').value = '';
+    document.getElementById('mapCourseSelect').value = '';
+    fillCourseDetails();
     loadMappings();
   } finally { hideGlobalLoader(); }
 }
