@@ -1030,27 +1030,64 @@ async function logout() {
 // ============================================================
 // ADMIN TABS
 // ============================================================
-function showAdminTab(tab) {
+// Teacher management state
+let allTeachers = [];
+let currentAdminTab = '';
+
+async function showAdminTab(tab) {
+  currentAdminTab = tab;
   const el = document.getElementById('adminContent');
   const yearOpts = ['1st','2nd','3rd','4th','Preliminary to Masters','Masters Final'].map(y => `<option>${y}</option>`).join('');
 
   if (tab === 'manageTeacher') {
+    el.innerHTML = '<div class="text-center py-8 text-gray-500 bangla-text">⏳ লোড হচ্ছে...</div>';
+    const { data, error } = await db.from('teachers')
+      .select('id, name, name_code, designation, bcs_batch, mobile, email, id_no, user_id, biography, is_active, is_admin')
+      .order('name');
+    if (currentAdminTab !== 'manageTeacher') return;
+    if (error) {
+      el.innerHTML = `<p class="text-red-500 text-center py-8 bangla-text">❌ ${escapeHtml(error.message)}</p>`;
+      return;
+    }
+    allTeachers = data || [];
+
     el.innerHTML = `
-      ${sessionDatalist}
-      <div class="space-y-4 max-w-2xl">
-        <h3 class="text-lg font-bold dark:text-white bangla-text">👨‍🏫 শিক্ষক ব্যবস্থাপনা</h3>
-        <div class="bg-indigo-50 dark:bg-indigo-900/30 p-4 rounded-xl">
-          <h4 class="font-bold text-sm mb-3 dark:text-white bangla-text">➕ নতুন শিক্ষক</h4>
-          <input id="ntName" placeholder="পূর্ণ নাম" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
-          <input id="ntPin" placeholder="PIN (৪-৬ ডিজিট)" inputmode="numeric" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-          <button onclick="addTeacher()" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">সংরক্ষণ</button>
-        </div>
-        <div>
-          <h4 class="font-bold text-sm mb-3 dark:text-white bangla-text">📋 শিক্ষক তালিকা</h4>
-          <div id="teacherList" class="space-y-2"></div>
-        </div>
-      </div>`;
-    loadTeachers();
+      <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+        <h3 class="text-xl font-bold dark:text-white bangla-text">👨‍🏫 শিক্ষক ব্যবস্থাপনা</h3>
+        <button onclick="showTeacherForm()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg btn-pop bangla-text font-bold">+ নতুন শিক্ষক</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        ${allTeachers.length ? allTeachers.map(t => {
+          const active = t.is_active !== false;
+          return `
+          <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl border-l-4 ${active ? 'border-emerald-500' : 'border-red-500'}">
+            <div class="flex justify-between items-start gap-2">
+              <div class="min-w-0">
+                <p class="font-bold dark:text-white bangla-text">${escapeHtml(t.name)}</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">${escapeHtml(t.designation || 'শিক্ষক')}</p>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <span class="text-xs px-2 py-1 rounded ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">
+                  ${active ? 'Active' : 'In-active'}
+                </span>
+                ${t.is_admin ? '<span class="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-xs">Admin</span>' : ''}
+              </div>
+            </div>
+            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 bangla-text">
+              <p>ID: <span class="num-display">${escapeHtml(t.user_id || t.id_no || '-')}</span></p>
+              <p>মোবাইল: <span class="num-display">${escapeHtml(t.mobile || '-')}</span></p>
+            </div>
+            <div class="mt-3 flex gap-2">
+              <button onclick="viewTeacherProfile('${escapeHtml(t.id)}')" class="flex-1 bg-blue-500 text-white py-1 rounded text-xs font-bold bangla-text">View</button>
+              ${t.is_admin
+                ? '<span class="flex-[2] text-center text-xs text-gray-400 py-1 bangla-text">সুরক্ষিত</span>'
+                : `<button onclick="showTeacherForm('${escapeHtml(t.id)}')" class="flex-1 bg-amber-500 text-white py-1 rounded text-xs font-bold bangla-text">Edit</button>
+                   <button onclick="toggleTeacherStatus('${escapeHtml(t.id)}', ${active})" class="flex-1 ${active ? 'bg-red-500' : 'bg-emerald-500'} text-white py-1 rounded text-xs font-bold bangla-text">${active ? 'In-active' : 'Active'}</button>`}
+            </div>
+          </div>`;
+        }).join('') : '<p class="text-gray-400 text-sm bangla-text col-span-full">কোনো শিক্ষক নেই</p>'}
+      </div>
+    `;
   }
   else if (tab === 'academicSetup') {
     el.innerHTML = `
@@ -3717,6 +3754,129 @@ if ('serviceWorker' in navigator) {
       .then(reg => console.log('✅ Service Worker registered:', reg.scope))
       .catch(err => console.log('❌ SW error:', err));
   });
+}
+
+// ============================================================
+// NEW: Teacher Management (form / save / view / status)
+// ============================================================
+function openTeacherModal(html) {
+  document.getElementById('attendanceModal').classList.remove('hidden');
+  document.getElementById('modalContent').innerHTML = html;
+}
+
+function showTeacherForm(id = '') {
+  const t = id ? (allTeachers.find(x => x.id === id) || {}) : {};
+  const isEdit = !!t.id;
+  if (id && !isEdit) return toastError('শিক্ষক পাওয়া যায়নি');
+  const inp = 'w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600';
+  openTeacherModal(`
+    <h3 class="text-xl font-bold mb-4 dark:text-white bangla-text">${isEdit ? '✏️ শিক্ষক এডিট' : '+ নতুন শিক্ষক'}</h3>
+    <div class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+      <input id="tfName" value="${escapeHtml(t.name || '')}" placeholder="পূর্ণ নাম *" class="${inp} bangla-text">
+      ${isEdit ? '' : `<input id="tfPin" inputmode="numeric" placeholder="PIN (৪-৬ ডিজিট) *" class="${inp} num-display">`}
+      <input id="tfNameCode" value="${escapeHtml(t.name_code || '')}" placeholder="নাম কোড" class="${inp} bangla-text">
+      <input id="tfDesignation" value="${escapeHtml(t.designation || '')}" placeholder="পদবী" class="${inp} bangla-text">
+      <input id="tfBCS" value="${escapeHtml(t.bcs_batch || '')}" placeholder="বিসিএস ব্যাচ" class="${inp} bangla-text">
+      <input id="tfMobile" value="${escapeHtml(t.mobile || '')}" placeholder="মোবাইল নম্বর" class="${inp} num-display">
+      <input id="tfEmail" value="${escapeHtml(t.email || '')}" placeholder="ইমেইল" class="${inp}">
+      <input id="tfIdNo" value="${escapeHtml(t.id_no || '')}" placeholder="আইডি নং" class="${inp}">
+      <input id="tfUserId" value="${escapeHtml(t.user_id || '')}" placeholder="ইউজার আইডি (Unique)" class="${inp}">
+      <textarea id="tfBiography" rows="2" placeholder="বায়োগ্রাফি" class="${inp} bangla-text">${escapeHtml(t.biography || '')}</textarea>
+    </div>
+    <div class="flex gap-2 mt-4">
+      <button onclick="saveTeacher('${escapeHtml(id)}')" class="flex-1 bg-emerald-600 text-white py-2 rounded font-bold bangla-text">সংরক্ষণ</button>
+      <button onclick="closeModal()" class="flex-1 bg-gray-400 text-white py-2 rounded font-bold bangla-text">বাতিল</button>
+    </div>
+  `);
+  document.getElementById('tfName').focus();
+}
+
+async function saveTeacher(id) {
+  const val = k => (document.getElementById(k)?.value || '').trim();
+  const name = val('tfName');
+  const profile = {
+    name_code: val('tfNameCode') || null,
+    designation: val('tfDesignation') || null,
+    bcs_batch: val('tfBCS') || null,
+    mobile: banglaToEnglish(val('tfMobile')) || null,
+    email: val('tfEmail') || null,
+    id_no: val('tfIdNo') || null,
+    user_id: val('tfUserId').toLowerCase() || null,
+    biography: val('tfBiography') || null
+  };
+  if (!name) return toastWarning('শিক্ষকের নাম দিন');
+
+  const isDup = e => /duplicate|unique/i.test(e?.message || '');
+  showGlobalLoader();
+  try {
+    if (id) {
+      // এডিট: নাম বদলালে name_slug-ও আপডেট হয় (লগইন slug দিয়ে মেলে)
+      const slug = name.toLowerCase().replace(/\s+/g, '_');
+      const { error } = await db.from('teachers').update({ name, name_slug: slug, ...profile }).eq('id', id);
+      if (error) throw error;
+    } else {
+      // নতুন শিক্ষক: PIN নিরাপদভাবে আগের RPC দিয়েই তৈরি হয়
+      const pin = banglaToEnglish(val('tfPin'));
+      if (pin.length < 4) { toastWarning('৪-ডিজিট বা তার বেশি PIN দিন'); return; }
+      const { data, error } = await db.rpc('admin_add_teacher', { p_name: name, p_pin: pin });
+      if (error || !data || !data.ok) { toastError(data?.message || error?.message || 'ব্যর্থ'); return; }
+
+      let newId = data.teacher_id || data.id || null;
+      if (!newId) {
+        const { data: found } = await db.from('teachers').select('id').eq('name', name)
+          .order('created_at', { ascending: false }).limit(1);
+        newId = found && found[0] ? found[0].id : null;
+      }
+      if (newId && Object.values(profile).some(v => v)) {
+        const { error: upErr } = await db.from('teachers').update(profile).eq('id', newId);
+        if (upErr) {
+          toastWarning(isDup(upErr)
+            ? 'শিক্ষক যোগ হয়েছে, কিন্তু ইউজার আইডি আগেই ব্যবহৃত — Edit থেকে বদলান'
+            : 'শিক্ষক যোগ হয়েছে, কিন্তু অতিরিক্ত তথ্য সংরক্ষণ হয়নি: ' + upErr.message);
+          closeModal();
+          showAdminTab('manageTeacher');
+          return;
+        }
+      }
+    }
+    toastSuccess('শিক্ষক তথ্য সংরক্ষণ হয়েছে');
+    closeModal();
+    showAdminTab('manageTeacher');
+  } catch (e) {
+    toastError(isDup(e) ? 'এই ইউজার আইডি আগেই ব্যবহৃত হয়েছে' : (e.message || 'ব্যর্থ'));
+  } finally { hideGlobalLoader(); }
+}
+
+function viewTeacherProfile(id) {
+  const t = allTeachers.find(x => x.id === id);
+  if (!t) return;
+  openTeacherModal(`
+    <h3 class="text-xl font-bold mb-2 dark:text-white bangla-text">${escapeHtml(t.name)}</h3>
+    <div class="space-y-2 text-sm dark:text-gray-300 bangla-text">
+      <p><b>নাম কোড:</b> ${escapeHtml(t.name_code || '-')}</p>
+      <p><b>পদবী:</b> ${escapeHtml(t.designation || '-')}</p>
+      <p><b>বিসিএস ব্যাচ:</b> ${escapeHtml(t.bcs_batch || '-')}</p>
+      <p><b>মোবাইল:</b> <span class="num-display">${escapeHtml(t.mobile || '-')}</span></p>
+      <p><b>ইমেইল:</b> ${escapeHtml(t.email || '-')}</p>
+      <p><b>আইডি:</b> ${escapeHtml(t.id_no || '-')}</p>
+      <p><b>ইউজার আইডি:</b> ${escapeHtml(t.user_id || '-')}</p>
+      <p><b>বায়োগ্রাফি:</b> ${escapeHtml(t.biography || 'নেই')}</p>
+    </div>
+    <button onclick="closeModal()" class="w-full mt-4 bg-gray-600 text-white py-2 rounded font-bold bangla-text">বন্ধ করুন</button>
+  `);
+}
+
+async function toggleTeacherStatus(id, currentStatus) {
+  const ok = await confirmAction('নিশ্চিত?', currentStatus ? 'শিক্ষক In-active করবেন?' : 'শিক্ষক Active করবেন?', 'হ্যাঁ');
+  if (!ok) return;
+  showGlobalLoader();
+  try {
+    const { error } = await db.from('teachers').update({ is_active: !currentStatus }).eq('id', id);
+    if (error) throw error;
+    toastSuccess('আপডেট হয়েছে');
+    showAdminTab('manageTeacher');
+  } catch (e) { toastError(e.message); }
+  finally { hideGlobalLoader(); }
 }
 </script>
 </body>
