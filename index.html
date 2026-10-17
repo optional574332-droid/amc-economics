@@ -3769,11 +3769,20 @@ function showTeacherForm(id = '') {
   const isEdit = !!t.id;
   if (id && !isEdit) return toastError('শিক্ষক পাওয়া যায়নি');
   const inp = 'w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600';
+
   openTeacherModal(`
     <h3 class="text-xl font-bold mb-4 dark:text-white bangla-text">${isEdit ? '✏️ শিক্ষক এডিট' : '+ নতুন শিক্ষক'}</h3>
     <div class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
       <input id="tfName" value="${escapeHtml(t.name || '')}" placeholder="পূর্ণ নাম *" class="${inp} bangla-text">
-      ${isEdit ? '' : `<input id="tfPin" inputmode="numeric" placeholder="PIN (৪-৬ ডিজিট) *" class="${inp} num-display">`}
+
+      <div>
+        <div class="relative">
+          <input id="tfPin" type="password" inputmode="numeric" autocomplete="new-password" placeholder="${isEdit ? 'নতুন PIN (বদলাতে চাইলে)' : 'PIN (৪-৬ ডিজিট) *'}" class="${inp} num-display pr-10">
+          <button type="button" onclick="const p=document.getElementById('tfPin'); p.type = p.type==='password'?'text':'password';" class="absolute right-2 top-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-sm">👁️</button>
+        </div>
+        ${isEdit ? '<p class="text-xs text-gray-500 dark:text-gray-400 mt-1 bangla-text">PIN না বদলাতে চাইলে খালি রাখুন</p>' : ''}
+      </div>
+
       <input id="tfNameCode" value="${escapeHtml(t.name_code || '')}" placeholder="নাম কোড" class="${inp} bangla-text">
       <input id="tfDesignation" value="${escapeHtml(t.designation || '')}" placeholder="পদবী" class="${inp} bangla-text">
       <input id="tfBCS" value="${escapeHtml(t.bcs_batch || '')}" placeholder="বিসিএস ব্যাচ" class="${inp} bangla-text">
@@ -3794,6 +3803,8 @@ function showTeacherForm(id = '') {
 async function saveTeacher(id) {
   const val = k => (document.getElementById(k)?.value || '').trim();
   const name = val('tfName');
+  const pin = banglaToEnglish(val('tfPin'));
+
   const profile = {
     name_code: val('tfNameCode') || null,
     designation: val('tfDesignation') || null,
@@ -3804,20 +3815,36 @@ async function saveTeacher(id) {
     user_id: val('tfUserId').toLowerCase() || null,
     biography: val('tfBiography') || null
   };
+
   if (!name) return toastWarning('শিক্ষকের নাম দিন');
+  if (!id && pin.length < 4) return toastWarning('কমপক্ষে ৪-ডিজিটের PIN দিন');
+  if (id && pin && pin.length < 4) return toastWarning('PIN কমপক্ষে ৪ ডিজিট হতে হবে (না বদলাতে চাইলে খালি রাখুন)');
 
   const isDup = e => /duplicate|unique/i.test(e?.message || '');
   showGlobalLoader();
   try {
     if (id) {
-      // এডিট: নাম বদলালে name_slug-ও আপডেট হয় (লগইন slug দিয়ে মেলে)
+      // এডিট: আগে প্রোফাইল তথ্য (নাম বদলালে name_slug-ও, কারণ লগইন slug দিয়ে মেলে)
       const slug = name.toLowerCase().replace(/\s+/g, '_');
       const { error } = await db.from('teachers').update({ name, name_slug: slug, ...profile }).eq('id', id);
       if (error) throw error;
+
+      // নতুন PIN দিলে তবেই PIN বদলাবে
+      if (pin) {
+        const { data, error: pinErr } = await db.rpc('admin_set_teacher_pin', { p_teacher_id: id, p_pin: pin });
+        if (pinErr || (data && data.ok === false)) {
+          const msg = data?.message || pinErr?.message || '';
+          const missing = /could not find|does not exist|PGRST202/i.test(msg + ' ' + (pinErr?.code || ''));
+          toastWarning(missing
+            ? 'তথ্য সংরক্ষণ হয়েছে, কিন্তু PIN বদলানো যায়নি — ডাটাবেসে PIN বদলের ফাংশন নেই'
+            : 'তথ্য সংরক্ষণ হয়েছে, কিন্তু PIN বদলায়নি: ' + msg);
+          closeModal();
+          showAdminTab('manageTeacher');
+          return;
+        }
+      }
     } else {
       // নতুন শিক্ষক: PIN নিরাপদভাবে আগের RPC দিয়েই তৈরি হয়
-      const pin = banglaToEnglish(val('tfPin'));
-      if (pin.length < 4) { toastWarning('৪-ডিজিট বা তার বেশি PIN দিন'); return; }
       const { data, error } = await db.rpc('admin_add_teacher', { p_name: name, p_pin: pin });
       if (error || !data || !data.ok) { toastError(data?.message || error?.message || 'ব্যর্থ'); return; }
 
