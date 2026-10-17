@@ -26,7 +26,7 @@
   * { font-family: 'Hind Siliguri', sans-serif; }
 
   input[type="number"], input[type="tel"], input.mark-input,
-  #studentRollInput, #homePinInput, #teacherPin, #ntPin,
+  #studentRollInput, #homePinInput, #teacherUserId, #teacherPin, #ntPin, #tfUserId,
   #msRoll, #msReg, #msPhone, #msGuardianPhone,
   #edRoll, #edReg, #edPhone, #edGuardianPhone,
   #meRoll, #meSearch, #irRoll, #mapCourse, #pubCourse,
@@ -215,7 +215,7 @@
 <section id="teacherLoginSection" class="hidden fade-in max-w-md mx-auto mt-8 px-4">
   <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8">
     <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-6 bangla-text">👨‍🏫 শিক্ষক লগইন</h2>
-    <input id="teacherName" placeholder="শিক্ষকের নাম" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-3 focus:border-indigo-500 focus:outline-none bangla-text">
+    <input id="teacherUserId" placeholder="ইউজার আইডি (User ID)" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-3 focus:border-indigo-500 focus:outline-none">
     <input id="teacherPin" type="password" placeholder="PIN" inputmode="numeric" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-4 focus:border-indigo-500 focus:outline-none">
     <button onclick="teacherLogin()" class="w-full bg-emerald-600 text-white py-3 rounded-xl btn-pop bangla-text">লগইন</button>
     <p id="teacherErr" class="text-red-500 text-sm mt-2 bangla-text"></p>
@@ -2468,14 +2468,25 @@ async function exportTableExcel(table) {
 // TEACHER PANEL
 // ============================================================
 async function teacherLogin() {
-  const name = document.getElementById('teacherName').value.trim();
+  const userId = document.getElementById('teacherUserId').value.trim().toLowerCase();
   const pin = banglaToEnglish(document.getElementById('teacherPin').value.trim());
-  document.getElementById('teacherErr').textContent = '';
+  const errEl = document.getElementById('teacherErr');
+  errEl.textContent = '';
+  if (!userId || !pin) {
+    errEl.textContent = 'ইউজার আইডি ও PIN দিন';
+    return;
+  }
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('teacher_login', { p_name: name, p_pin: pin });
-    if (error || !data || !data.ok) {
-      document.getElementById('teacherErr').textContent = data?.message || 'ভুল নাম বা PIN';
+    // লগইন এখন শিক্ষকের নাম দিয়ে নয় — ইউনিক ইউজার আইডি + PIN দিয়ে
+    const { data, error } = await db.rpc('teacher_login', { p_user_id: userId, p_pin: pin });
+    if (error) {
+      // ফাংশন না থাকা/ডাটাবেস ত্রুটি আসল কারণসহ দেখানো হবে (ভুল পাসওয়ার্ড বলে ভুল বোঝানো হবে না)
+      errEl.textContent = 'লগইন ব্যর্থ: ' + (error.message || 'ডাটাবেস ত্রুটি');
+      return;
+    }
+    if (!data || !data.ok) {
+      errEl.textContent = data?.message || 'ভুল ইউজার আইডি বা PIN';
       return;
     }
     currentTeacher = { id: data.teacher_id, name: data.teacher_name };
@@ -3913,6 +3924,10 @@ function showTeacherForm(id = '') {
     <h3 class="text-xl font-bold mb-4 dark:text-white bangla-text">${isEdit ? '✏️ শিক্ষক এডিট' : '+ নতুন শিক্ষক'}</h3>
     <div class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
       <input id="tfName" value="${escapeHtml(t.name || '')}" placeholder="পূর্ণ নাম *" class="${inp} bangla-text">
+      <div>
+        <input id="tfUserId" value="${escapeHtml(t.user_id || '')}" placeholder="ইউজার আইডি * (লগইনের জন্য, Unique)" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" class="${inp}">
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 bangla-text">এই আইডি ও PIN দিয়ে শিক্ষক লগইন করবেন। ফাঁকা জায়গা (space) দেওয়া যাবে না।</p>
+      </div>
 
       <div>
         <div class="relative">
@@ -3928,7 +3943,6 @@ function showTeacherForm(id = '') {
       <input id="tfMobile" value="${escapeHtml(t.mobile || '')}" placeholder="মোবাইল নম্বর" class="${inp} num-display">
       <input id="tfEmail" value="${escapeHtml(t.email || '')}" placeholder="ইমেইল" class="${inp}">
       <input id="tfIdNo" value="${escapeHtml(t.id_no || '')}" placeholder="আইডি নং" class="${inp}">
-      <input id="tfUserId" value="${escapeHtml(t.user_id || '')}" placeholder="ইউজার আইডি (Unique)" class="${inp}">
       <textarea id="tfBiography" rows="2" placeholder="বায়োগ্রাফি" class="${inp} bangla-text">${escapeHtml(t.biography || '')}</textarea>
     </div>
     <div class="flex gap-2 mt-4">
@@ -3956,14 +3970,28 @@ async function saveTeacher(id) {
   };
 
   if (!name) return toastWarning('শিক্ষকের নাম দিন');
+  if (!profile.user_id) return toastWarning('ইউজার আইডি দিন (এটি ছাড়া শিক্ষক লগইন করতে পারবেন না)');
+  if (/\s/.test(profile.user_id)) return toastWarning('ইউজার আইডিতে ফাঁকা জায়গা (space) দেওয়া যাবে না');
   if (!id && pin.length < 4) return toastWarning('কমপক্ষে ৪-ডিজিটের PIN দিন');
   if (id && pin && pin.length < 4) return toastWarning('PIN কমপক্ষে ৪ ডিজিট হতে হবে (না বদলাতে চাইলে খালি রাখুন)');
 
   const isDup = e => /duplicate|unique/i.test(e?.message || '');
   showGlobalLoader();
   try {
+    // ইউজার আইডি ইউনিক কিনা — সংরক্ষণের আগেই যাচাই (ডুপ্লিকেট হলে সতর্কবার্তা, কিছুই তৈরি/পরিবর্তন হবে না)
+    {
+      let q = db.from('teachers').select('id, name').eq('user_id', profile.user_id).limit(1);
+      if (id) q = q.neq('id', id);
+      const { data: taken, error: chkErr } = await q;
+      if (chkErr) throw chkErr;
+      if (taken && taken.length) {
+        toastWarning('এই ইউজার আইডি আগেই ব্যবহৃত হয়েছে (' + (taken[0].name || '') + ') — অন্য আইডি দিন');
+        return;
+      }
+    }
+
     if (id) {
-      // এডিট: আগে প্রোফাইল তথ্য (নাম বদলালে name_slug-ও, কারণ লগইন slug দিয়ে মেলে)
+      // এডিট: প্রোফাইল তথ্য (নাম বদলালে name_slug-ও আপডেট থাকে; তবে লগইন আর নাম/slug দিয়ে হয় না, user_id দিয়ে হয়)
       const slug = name.toLowerCase().replace(/\s+/g, '_');
       const { error } = await db.from('teachers').update({ name, name_slug: slug, ...profile }).eq('id', id);
       if (error) throw error;
