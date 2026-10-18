@@ -1141,7 +1141,7 @@ async function showAdminTab(tab) {
     el.innerHTML = `
       ${sessionDatalist}
       <div class="space-y-4 max-w-lg">
-        <h3 class="text-lg font-bold dark:text-white bangla-text">🔗 শিক্ষক-কোর্স ম্যাপিং</h3>
+        <h3 class="text-lg font-bold dark:text-white bangla-text">🔗 শিক্ষক-কোর্স ও রুটিন ম্যাপিং</h3>
         
         <select id="mapTeacher" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
           <option value="">শিক্ষক সিলেক্ট করুন</option>
@@ -1160,7 +1160,27 @@ async function showAdminTab(tab) {
         <input id="mapCourse" placeholder="কোর্স কোড" readonly class="w-full border-2 rounded-xl p-3 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600">
         <input id="mapCourseName" placeholder="কোর্সের নাম" readonly class="w-full border-2 rounded-xl p-3 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600 bangla-text">
         
-        <button onclick="saveMapping()" class="bg-cyan-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">সংরক্ষণ</button>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold mb-1 dark:text-white bangla-text">দিন</label>
+            <select id="mapDay" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+              <option value="">দিন</option>
+              <option>Sunday</option><option>Monday</option><option>Tuesday</option>
+              <option>Wednesday</option><option>Thursday</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1 dark:text-white bangla-text">সময়</label>
+            <select id="mapTime" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+              <option value="">সময়</option>
+              <option>9.00-9.45</option><option>9.45-10.30</option><option>10.30-11.15</option>
+              <option>11.15-12.00</option><option>12.00-12.45</option><option>12.45-1.30</option>
+              <option>1.30-2.00 (Tifin)</option><option>2.00-2.45</option><option>2.45-3.30</option>
+            </select>
+          </div>
+        </div>
+
+        <button onclick="saveMapping()" class="bg-cyan-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text mt-2">সংরক্ষণ</button>
         <div id="mappingList" class="mt-4"></div>
       </div>`;
     loadTeachersDropdown();
@@ -1169,32 +1189,44 @@ async function showAdminTab(tab) {
   }
   else if (tab === 'routine') {
     el.innerHTML = `
-      <div class="space-y-4 max-w-lg">
-        <h3 class="text-lg font-bold dark:text-white bangla-text">📅 ক্লাস রুটিন তৈরি</h3>
-        <div class="bg-purple-50 dark:bg-purple-900/30 p-4 rounded-xl space-y-2">
-          <select id="rtDay" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
-            <option>Sunday</option><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option>
-          </select>
-          <input id="rtTime" placeholder="সময় (যেমন: 09:00-09:45)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-          
-          <select id="rtYear" onchange="loadAcademicCoursesForRoutine()" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
-            <option value="">ইয়ার সিলেক্ট করুন</option>
-            <option>XI</option><option>XII</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option><option>Preliminary</option><option>Final</option>
-          </select>
-
-          <select id="rtCourseSelect" onchange="fillRoutineCourse()" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
-            <option value="">কোর্স সিলেক্ট করুন</option>
-          </select>
-
-          <input id="rtCourse" placeholder="কোর্স কোড" readonly class="w-full border-2 rounded-xl p-3 mb-2 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600">
-          
-          <select id="rtTeacher" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text"></select>
-          <input id="rtRoom" placeholder="রুম নম্বর" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-          
-          <button onclick="saveRoutine()" class="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">রুটিনে যোগ করুন</button>
+      <div class="space-y-4">
+        <h3 class="text-lg font-bold dark:text-white bangla-text">📅 ক্লাস রুটিন ও রিপোর্ট</h3>
+        <div class="bg-purple-50 dark:bg-purple-900/30 p-4 rounded-xl space-y-3">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div>
+              <label class="block text-xs font-bold mb-1 dark:text-white bangla-text">ডে (Day)</label>
+              <select id="rvDay" class="w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+                <option value="">সব দিন</option>
+                <option>Sunday</option><option>Monday</option><option>Tuesday</option>
+                <option>Wednesday</option><option>Thursday</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1 dark:text-white bangla-text">ইয়ার (Year)</label>
+              <select id="rvYear" class="w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+                <option value="">সব ইয়ার</option>${yearOpts}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold mb-1 dark:text-white bangla-text">শিক্ষক (Teacher)</label>
+              <select id="rvTeacher" class="w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+                <option value="">সব শিক্ষক</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="loadRoutineViewer()" class="flex-1 bg-purple-600 text-white px-4 py-2 rounded-xl font-bold btn-pop bangla-text">🔍 রুটিন দেখুন</button>
+            <button onclick="exportRoutineExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold btn-pop text-sm bangla-text">📊 Excel</button>
+            <button onclick="exportRoutinePDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl font-bold btn-pop text-sm bangla-text">📄 PDF</button>
+          </div>
         </div>
+        <div id="routineViewerArea" class="mt-4"></div>
       </div>`;
-    loadTeachersDropdown();
+    const { data: tData } = await db.from('teachers').select('id, name').order('name');
+    const tSel = document.getElementById('rvTeacher');
+    if (tSel && tData) {
+      tSel.innerHTML += tData.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join('');
+    }
   }
   else if (tab === 'reports') {
     el.innerHTML = `
@@ -1896,14 +1928,23 @@ async function saveMapping() {
   const year = document.getElementById('mapYear').value;
   const course_code = document.getElementById('mapCourse').value.trim().toUpperCase();
   const course_name = document.getElementById('mapCourseName').value.trim();
+  const class_day = document.getElementById('mapDay').value;
+  const time_slot = document.getElementById('mapTime').value;
   if (!teacher_id || !session || !year || !course_code) return toastWarning('শিক্ষক, সেশন, ইয়ার, কোর্স দিন');
   showGlobalLoader();
   try {
-    const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code });
-    if (e1 && !e1.message.includes('duplicate')) return toastError(e1.message);
+    const { error: e1 } = await db.from('teacher_courses').insert({
+      teacher_id, session, year, course_code,
+      class_day: class_day || null,
+      time_slot: time_slot || null
+    });
+    if (e1) {
+      if (e1.message.includes('duplicate')) return toastWarning('এই ম্যাপিং আগেই আছে');
+      return toastError(e1.message);
+    }
     const { error: e2 } = await db.from('courses').upsert({ session, year, course_code, course_name: course_name || null }, { onConflict: 'session,year,course_code' });
     if (e2) console.error(e2);
-    toastSuccess('ম্যাপিং সংরক্ষিত');
+    toastSuccess('ম্যাপিং ও রুটিন সংরক্ষিত');
     document.getElementById('mapCourseSelect').value = '';
     fillCourseDetails();
     loadMappings();
@@ -1916,12 +1957,131 @@ async function loadMappings() {
   const h = await Promise.all(data.map(async m => {
     const { data: c } = await db.from('courses').select('course_name').eq('session', m.session).eq('year', m.year).eq('course_code', m.course_code).maybeSingle();
     const dn = c?.course_name ? `${c.course_name}-${m.course_code}` : m.course_code;
+    const dayTimeStr = (m.class_day && m.time_slot)
+      ? `<span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] ml-1">${escapeHtml(m.class_day)}, ${escapeHtml(m.time_slot)}</span>`
+      : '';
     return `<div class="bg-cyan-50 dark:bg-cyan-900/30 px-3 py-2 rounded-lg text-sm mb-1 flex justify-between items-center">
-      <span class="dark:text-white bangla-text">${escapeHtml(m.teachers?.name)} → <b class="num-display">${escapeHtml(dn)}</b></span>
-      <span class="text-xs text-gray-500 dark:text-gray-400 bangla-text">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
+      <div class="dark:text-white bangla-text flex-1">
+        ${escapeHtml(m.teachers?.name)} → <b class="num-display">${escapeHtml(dn)}</b>
+        ${dayTimeStr}
+      </div>
+      <span class="text-xs text-gray-500 dark:text-gray-400 bangla-text whitespace-nowrap ml-2">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
     </div>`;
   }));
   document.getElementById('mappingList').innerHTML = h.join('');
+}
+
+// ============================================================
+// ROUTINE VIEWER & REPORTS
+// ============================================================
+let currentRoutineData = null;
+const ROUTINE_TIME_ORDER = ['9.00-9.45','9.45-10.30','10.30-11.15','11.15-12.00','12.00-12.45','12.45-1.30','1.30-2.00 (Tifin)','2.00-2.45','2.45-3.30'];
+function routineTimeRank(t) { const i = ROUTINE_TIME_ORDER.indexOf(t); return i === -1 ? 99 : i; }
+
+async function loadRoutineViewer() {
+  const day = document.getElementById('rvDay').value;
+  const year = document.getElementById('rvYear').value;
+  const teacherId = document.getElementById('rvTeacher').value;
+  const area = document.getElementById('routineViewerArea');
+  area.innerHTML = '<p class="text-center py-4 dark:text-gray-300 bangla-text">⏳ লোড হচ্ছে...</p>';
+  try {
+    let q = db.from('teacher_courses').select('*, teachers(name)').not('class_day', 'is', null).not('time_slot', 'is', null);
+    if (day) q = q.eq('class_day', day);
+    if (year) q = q.eq('year', year);
+    if (teacherId) q = q.eq('teacher_id', teacherId);
+    const { data: mappings, error } = await q;
+    if (error) throw error;
+    if (!mappings || !mappings.length) {
+      area.innerHTML = '<p class="text-center text-gray-500 py-4 bangla-text">এই ফিল্টারে কোনো রুটিন পাওয়া যায়নি</p>';
+      currentRoutineData = null;
+      return;
+    }
+    const courseMap = {};
+    const courseCodes = [...new Set(mappings.map(m => m.course_code))];
+    if (courseCodes.length) {
+      const { data: courses } = await db.from('courses').select('course_code, session, year, course_name').in('course_code', courseCodes);
+      courses?.forEach(c => { courseMap[`${c.session}|${c.year}|${c.course_code}`] = c.course_name; });
+    }
+    const processed = mappings.map(m => ({
+      ...m,
+      course_name: courseMap[`${m.session}|${m.year}|${m.course_code}`] || '',
+      teacher_name: m.teachers?.name || 'Unknown'
+    }));
+    const weekOrder = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4 };
+    processed.sort((a, b) => {
+      if (weekOrder[a.class_day] !== weekOrder[b.class_day]) return weekOrder[a.class_day] - weekOrder[b.class_day];
+      return routineTimeRank(a.time_slot) - routineTimeRank(b.time_slot);
+    });
+    currentRoutineData = processed;
+    const bnDay = { Sunday: 'রবিবার', Monday: 'সোমবার', Tuesday: 'মঙ্গলবার', Wednesday: 'বুধবার', Thursday: 'বৃহস্পতিবার' };
+    const grouped = {};
+    processed.forEach(p => {
+      if (!grouped[p.class_day]) grouped[p.class_day] = [];
+      grouped[p.class_day].push(p);
+    });
+    area.innerHTML = `
+      <div class="space-y-4">
+        ${Object.entries(grouped).map(([d, items]) => `
+          <div class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-xl overflow-hidden">
+            <div class="bg-purple-100 dark:bg-purple-900/50 px-4 py-2 border-b border-purple-200 dark:border-purple-700">
+              <h4 class="font-bold text-purple-800 dark:text-purple-200 bangla-text">${bnDay[d] || escapeHtml(d)}</h4>
+            </div>
+            <div class="divide-y divide-gray-200 dark:divide-gray-700">
+              ${items.map(r => `
+                <div class="p-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-bold num-display">${escapeHtml(r.time_slot)}</span>
+                      <span class="font-bold dark:text-white bangla-text">${r.course_name ? escapeHtml(r.course_name) + ' - ' : ''}${escapeHtml(r.course_code)}</span>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 bangla-text">শিক্ষক: ${escapeHtml(r.teacher_name)}</p>
+                  </div>
+                  <div class="text-right">
+                    <span class="bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-1 rounded text-xs num-display">${escapeHtml(r.session)} · ${escapeHtml(r.year)}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  } catch (err) {
+    area.innerHTML = `<p class="text-red-500 text-center py-4 bangla-text">❌ ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function exportRoutineExcel() {
+  if (!currentRoutineData || !currentRoutineData.length) return toastWarning('প্রথমে রুটিন দেখুন');
+  const data = [['Day', 'Time', 'Course Code', 'Course Name', 'Teacher', 'Session', 'Year']];
+  currentRoutineData.forEach(r => {
+    data.push([r.class_day, r.time_slot, r.course_code, r.course_name || '', r.teacher_name, r.session, r.year]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Routine');
+  XLSX.writeFile(wb, `Routine_${Date.now()}.xlsx`);
+}
+
+async function exportRoutinePDF() {
+  if (!currentRoutineData || !currentRoutineData.length) return toastWarning('প্রথমে রুটিন দেখুন');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape' });
+  await setupBanglaFont(doc);
+  doc.setFontSize(14);
+  doc.text('AMC Economics - Class Routine', 14, 15);
+  doc.autoTable({
+    head: [['Day', 'Time', 'Course', 'Teacher', 'Session/Year']],
+    body: currentRoutineData.map(r => [
+      r.class_day, r.time_slot,
+      (r.course_name ? r.course_name + ' - ' : '') + r.course_code,
+      r.teacher_name, r.session + ' · ' + r.year
+    ]),
+    startY: 22,
+    styles: { fontSize: 8, font: 'HindSiliguri' },
+    headStyles: { fillColor: [147, 51, 234], font: 'HindSiliguri' }
+  });
+  doc.save(`Routine_${Date.now()}.pdf`);
 }
 
 // ============================================================
@@ -2641,7 +2801,8 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'myRoutine') {
     el.innerHTML = '<p class="text-center text-gray-500 py-8 bangla-text">⏳ লোড হচ্ছে...</p>';
-    const { data: routines, error } = await db.from('class_routines').select('*').eq('teacher_id', currentTeacher.id);
+    const { data: rawRoutines, error } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id).not('class_day', 'is', null).not('time_slot', 'is', null);
+    const routines = (rawRoutines || []).map(r => ({ ...r, day_name: r.class_day, year_name: r.year }));
     if (error) { el.innerHTML = `<p class="text-red-500 text-center py-8 bangla-text">❌ ${escapeHtml(error.message)}</p>`; return; }
     if (!routines || !routines.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8 bangla-text">আপনার জন্য কোনো রুটিন নেই</p>'; return; }
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -2653,7 +2814,7 @@ async function showTeacherTab(tab) {
         ${days.filter(d => routines.some(r => r.day_name === d)).map(d => `
           <div class="p-4 rounded-xl border-2 ${d === todayName ? 'border-lime-500 bg-lime-50 dark:bg-lime-900/20' : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700'}">
             <p class="font-bold mb-2 dark:text-white bangla-text">${bnDay[d]} ${d === todayName ? '<span class="text-xs bg-lime-600 text-white px-2 py-0.5 rounded-full">আজ</span>' : ''}</p>
-            ${routines.filter(r => r.day_name === d).sort((a, b) => String(a.time_slot).localeCompare(String(b.time_slot))).map(r => `
+            ${routines.filter(r => r.day_name === d).sort((a, b) => routineTimeRank(a.time_slot) - routineTimeRank(b.time_slot)).map(r => `
               <div class="flex justify-between items-center text-sm py-1 border-t border-gray-200 dark:border-gray-600 dark:text-gray-200">
                 <span class="num-display">${escapeHtml(r.time_slot)}</span>
                 <span class="bangla-text"><span class="num-display">${escapeHtml(r.course_code)}</span> · ${escapeHtml(r.year_name || '')}${r.room_no ? ` · রুম <span class="num-display">${escapeHtml(r.room_no)}</span>` : ''}</span>
