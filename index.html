@@ -197,7 +197,7 @@
 <section id="teacherDirectorySection" class="hidden fade-in max-w-4xl mx-auto mt-6 px-4">
   <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-6">
     <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-4 bangla-text">👨‍🏫 শিক্ষক পরিচিতি</h2>
-    <input id="dirSearch" placeholder="নাম দিয়ে খুঁজুন..." class="w-full border-2 rounded-xl p-3 mb-4 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text" oninput="loadTeacherDirectory()">
+    <input id="dirSearch" placeholder="নাম বা বিষয় দিয়ে খুঁজুন..." class="w-full border-2 rounded-xl p-3 mb-4 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text" oninput="loadTeacherDirectory()">
     <div id="directoryList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
   </div>
 </section>
@@ -621,25 +621,49 @@ async function loadTeacherDirectory() {
   const search = (document.getElementById('dirSearch')?.value || '').trim().toLowerCase();
   const el = document.getElementById('directoryList');
   if (!el) return;
+
   el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full">⏳ লোড হচ্ছে...</p>';
+
   // শুধু প্রয়োজনীয় কলাম — যাতে PIN সংক্রান্ত কোনো তথ্য পাবলিকলি না আসে
   const { data, error } = await db.from('teachers')
-    .select('id, name, designation, biography, mobile, is_active').order('name');
-  if (error) { el.innerHTML = `<p class="text-red-500 bangla-text col-span-full">❌ ${escapeHtml(error.message)}</p>`; return; }
+    .select('id, name, designation, biography, mobile, is_active, subject')
+    .order('name');
 
-  const filtered = (data || []).filter(t => t.is_active !== false && (t.name || '').toLowerCase().includes(search));
+  if (error) {
+    el.innerHTML = `<p class="text-red-500 bangla-text col-span-full">❌ ${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  const filtered = (data || []).filter(t => {
+    if (t.is_active === false) return false;
+    const nameMatch = (t.name || '').toLowerCase().includes(search);
+    const subMatch = (t.subject || '').toLowerCase().includes(search);
+    return nameMatch || subMatch;
+  });
+
   if (!filtered.length) {
-    el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full">কোনো শিক্ষক পাওয়া যায়নি</p>';
+    el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full py-8">কোনো শিক্ষক পাওয়া যায়নি</p>';
     return;
   }
 
   el.innerHTML = filtered.map(t => `
-    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl border-l-4 border-cyan-500">
-      <h3 class="font-bold text-lg dark:text-white bangla-text">${escapeHtml(t.name)}</h3>
-      <p class="text-sm text-gray-500 dark:text-gray-400 bangla-text">${escapeHtml(t.designation || 'Teacher')}</p>
-      <p class="text-xs mt-2 dark:text-gray-300 bangla-text">${escapeHtml(t.biography || 'বিস্তারিত তথ্য যুক্ত করা হয়নি।')}</p>
-      <div class="mt-3 flex gap-2">
-        ${t.mobile ? `<a href="tel:${escapeHtml(t.mobile)}" class="inline-block bg-indigo-600 text-white px-3 py-1 rounded-lg text-sm bangla-text">📞 কল করুন</a>` : ''}
+    <div class="bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 p-5 rounded-2xl shadow-sm hover:shadow-md transition fade-in flex flex-col justify-between">
+      <div>
+        <div class="flex justify-between items-start mb-2">
+          <div>
+            <h3 class="font-bold text-lg text-indigo-700 dark:text-indigo-300 bangla-text">${escapeHtml(t.name)}</h3>
+            <p class="text-sm text-gray-600 dark:text-gray-400 bangla-text">${escapeHtml(t.designation || 'শিক্ষক')}</p>
+          </div>
+          ${t.subject ? `<span class="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 text-xs px-3 py-1 rounded-full font-bold bangla-text whitespace-nowrap">${escapeHtml(t.subject)}</span>` : ''}
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-3 bangla-text leading-relaxed line-clamp-3">${escapeHtml(t.biography || 'বিস্তারিত তথ্য যুক্ত করা হয়নি।')}</p>
+      </div>
+      <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex gap-2">
+        ${t.mobile ? `
+          <a href="tel:${escapeHtml(t.mobile)}" class="flex-1 text-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300 px-3 py-2 rounded-xl text-sm font-bold transition btn-pop bangla-text">
+            📞 কল করুন
+          </a>` : ''
+        }
       </div>
     </div>
   `).join('');
@@ -1056,7 +1080,7 @@ async function showAdminTab(tab) {
   if (tab === 'manageTeacher') {
     el.innerHTML = '<div class="text-center py-8 text-gray-500 bangla-text">⏳ লোড হচ্ছে...</div>';
     const { data, error } = await db.from('teachers')
-      .select('id, name, name_code, designation, bcs_batch, mobile, email, id_no, user_id, biography, is_active, is_admin')
+      .select('id, name, name_code, designation, bcs_batch, mobile, email, id_no, user_id, biography, is_active, is_admin, subject')
       .order('name');
     if (currentAdminTab !== 'manageTeacher') return;
     if (error) {
@@ -1965,10 +1989,31 @@ async function loadMappings() {
         ${escapeHtml(m.teachers?.name)} → <b class="num-display">${escapeHtml(dn)}</b>
         ${dayTimeStr}
       </div>
-      <span class="text-xs text-gray-500 dark:text-gray-400 bangla-text whitespace-nowrap ml-2">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
+      <div class="flex items-center gap-2 ml-2">
+        <span class="text-xs text-gray-500 dark:text-gray-400 bangla-text whitespace-nowrap">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
+        <button onclick="deleteMapping('${escapeHtml(m.id)}')" class="bg-red-100 text-red-600 hover:bg-red-600 hover:text-white px-2 py-1 rounded text-xs transition btn-pop" title="Delete Mapping">
+          🗑️
+        </button>
+      </div>
     </div>`;
   }));
   document.getElementById('mappingList').innerHTML = h.join('');
+}
+
+async function deleteMapping(id) {
+  const ok = await confirmAction('মুছবেন?', 'এই ম্যাপিংটি মুছে ফেললে রুটিন থেকেও এটি সরে যাবে। তবে আগের হাজিরা ও নম্বর সুরক্ষিত থাকবে।', 'হ্যাঁ, মুছুন', '#dc2626');
+  if (!ok) return;
+  showGlobalLoader();
+  try {
+    const { error } = await db.from('teacher_courses').delete().eq('id', id);
+    if (error) throw error;
+    toastSuccess('ম্যাপিং মুছে ফেলা হয়েছে');
+    loadMappings();
+  } catch (e) {
+    toastError(e.message);
+  } finally {
+    hideGlobalLoader();
+  }
 }
 
 // ============================================================
@@ -4104,6 +4149,7 @@ function showTeacherForm(id = '') {
       <input id="tfMobile" value="${escapeHtml(t.mobile || '')}" placeholder="মোবাইল নম্বর" class="${inp} num-display">
       <input id="tfEmail" value="${escapeHtml(t.email || '')}" placeholder="ইমেইল" class="${inp}">
       <input id="tfIdNo" value="${escapeHtml(t.id_no || '')}" placeholder="আইডি নং" class="${inp}">
+      <input id="tfSubject" value="${escapeHtml(t.subject || '')}" placeholder="বিষয় (যেমন: Economics)" class="${inp} bangla-text">
       <textarea id="tfBiography" rows="2" placeholder="বায়োগ্রাফি" class="${inp} bangla-text">${escapeHtml(t.biography || '')}</textarea>
     </div>
     <div class="flex gap-2 mt-4">
@@ -4120,6 +4166,7 @@ async function saveTeacher(id) {
   const pin = banglaToEnglish(val('tfPin'));
 
   const profile = {
+    subject: val('tfSubject') || null,
     name_code: val('tfNameCode') || null,
     designation: val('tfDesignation') || null,
     bcs_batch: val('tfBCS') || null,
