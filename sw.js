@@ -180,7 +180,10 @@
   </div>
 </nav>
 
-<section id="homeSection" class="fade-in max-w-lg mx-auto mt-8 px-4">
+<section id="homeSection" class="fade-in max-w-2xl mx-auto mt-8 px-4">
+  <!-- নোটিশ বোর্ড -->
+  <div id="publicNoticeBoard" class="mb-4"></div>
+
   <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 text-center">
     <div class="text-6xl mb-3">📝</div>
     <h2 class="text-3xl font-bold text-gray-800 dark:text-white mb-2 bangla-text">হাজিরা দিন</h2>
@@ -612,6 +615,7 @@ function showSection(id) {
   if (t) { t.classList.remove('hidden'); t.classList.add('fade-in'); }
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (id === 'teacherDirectory') loadTeacherDirectory();
+  if (id === 'home') loadPublicNotices();
 }
 
 // ============================================================
@@ -667,6 +671,38 @@ async function loadTeacherDirectory() {
       </div>
     </div>
   `).join('');
+}
+
+// ============================================================
+// PUBLIC NOTICE BOARD (Home Screen)
+// ============================================================
+async function loadPublicNotices() {
+  const el = document.getElementById('publicNoticeBoard');
+  if (!el) return;
+  const { data: notices } = await db.from('notices')
+    .select('*')
+    .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
+    .order('created_at', { ascending: false })
+    .limit(3);
+  if (!notices || !notices.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `
+    <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl shadow-lg p-4">
+      <h3 class="font-bold text-gray-800 dark:text-white mb-3 bangla-text flex items-center gap-2">
+        <span>📢</span> সর্বশেষ নোটিশ
+      </h3>
+      <div class="space-y-2">
+        ${notices.map(n => `
+          <div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-3 rounded-r-xl">
+            <b class="dark:text-white bangla-text text-sm">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
+            <p class="text-xs text-gray-600 dark:text-gray-300 bangla-text mt-1 line-clamp-2">${escapeHtml(n.content)}</p>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 // ============================================================
@@ -2001,7 +2037,7 @@ async function loadMappings() {
 }
 
 async function deleteMapping(id) {
-  const ok = await confirmAction('মুছবেন?', 'এই ম্যাপিংটি মুছে ফেললে রুটিন থেকেও এটি সরে যাবে।', 'হ্যাঁ, মুছুন', '#dc2626');
+  const ok = await confirmAction('মুছবেন?', 'এই ম্যাপিংটি মুছে ফেললে রুটিন থেকেও এটি সরে যাবে। তবে আগের হাজিরা ও নম্বর সুরক্ষিত থাকবে।', 'হ্যাঁ, মুছুন', '#dc2626');
   if (!ok) return;
   showGlobalLoader();
   try {
@@ -4054,38 +4090,110 @@ async function studentLogin() {
 
 async function loadStudentData() {
   const student = currentStudent;
+
+  // হাজিরার হিসাব
   const { data: mySessions } = await db.from('attendance_sessions').select('id, course_code, date').eq('session', student.session).eq('year', student.year);
   const total = mySessions?.length || 0;
   const { data: records } = await db.from('attendance_records').select('status, session_id, attendance_sessions(course_code, date)').eq('student_id', student.id);
   const att = records?.filter(r => r.status === 'present' || r.status === 'late').length || 0;
   const pct = total > 0 ? ((att / total) * 100).toFixed(1) : 0;
   const pC = pct >= 70 ? 'emerald' : pct >= 50 ? 'amber' : 'red';
+
+  // নোটিশ
   const { data: notices } = await db.from('notices').select('*').or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`).order('created_at', { ascending: false }).limit(5);
+
+  // রুটিন ডাটা (ছাত্রের সেশন ও ইয়ার অনুযায়ী)
+  const { data: rawRoutines } = await db.from('teacher_courses')
+    .select('*, teachers(name)')
+    .eq('session', student.session)
+    .eq('year', student.year)
+    .not('class_day', 'is', null)
+    .not('time_slot', 'is', null);
+
+  const courseMap = {};
+  const courseCodes = [...new Set((rawRoutines || []).map(m => m.course_code))];
+  if (courseCodes.length) {
+    const { data: courses } = await db.from('courses').select('course_code, session, year, course_name').in('course_code', courseCodes);
+    courses?.forEach(c => { courseMap[`${c.session}|${c.year}|${c.course_code}`] = c.course_name; });
+  }
+
+  const routines = (rawRoutines || []).map(r => ({
+    ...r,
+    course_name: courseMap[`${r.session}|${r.year}|${r.course_code}`] || '',
+    teacher_name: r.teachers?.name || 'Unknown'
+  }));
+
+  const weekOrder = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4 };
+  routines.sort((a, b) => {
+    if (weekOrder[a.class_day] !== weekOrder[b.class_day]) return weekOrder[a.class_day] - weekOrder[b.class_day];
+    return routineTimeRank(a.time_slot) - routineTimeRank(b.time_slot);
+  });
+
+  const bnDay = { Sunday: 'রবিবার', Monday: 'সোমবার', Tuesday: 'মঙ্গলবার', Wednesday: 'বুধবার', Thursday: 'বৃহস্পতিবার' };
+  const groupedRoutines = {};
+  routines.forEach(p => {
+    if (!groupedRoutines[p.class_day]) groupedRoutines[p.class_day] = [];
+    groupedRoutines[p.class_day].push(p);
+  });
+
   document.getElementById('studentContent').innerHTML = `
-    <div class="bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl p-5 mb-4 text-center">
+    <div class="bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl p-5 mb-6 text-center">
       <p class="text-gray-500 dark:text-gray-400 text-sm bangla-text">${escapeHtml(student.name)}</p>
       <p class="text-xs text-gray-400 dark:text-gray-500 bangla-text">${escapeHtml(student.session)} · ${escapeHtml(student.year)} · রোল <span class="num-display">${escapeHtml(student.class_roll)}</span></p>
     </div>
-    <div class="bg-${pC}-50 dark:bg-${pC}-900/30 rounded-2xl p-6 mb-4 text-center">
-      <p class="text-5xl font-bold text-${pC}-600 dark:text-${pC}-300 num-display">${pct}%</p>
-      <p class="text-gray-500 dark:text-gray-400 bangla-text">উপস্থিতির হার</p>
-      <p class="text-xs text-gray-400 dark:text-gray-500 mt-2 bangla-text"><span class="num-display">${att}</span> / <span class="num-display">${total}</span></p>
+
+    <!-- হাজিরার সারাংশ -->
+    <div class="bg-${pC}-50 dark:bg-${pC}-900/30 rounded-2xl p-6 mb-6 text-center shadow-sm">
+      <p class="text-5xl font-bold text-${pC}-600 dark:text-${pC}-300 num-display mb-1">${pct}%</p>
+      <p class="text-gray-600 dark:text-gray-400 font-bold bangla-text">উপস্থিতির হার</p>
+      <p class="text-xs text-gray-500 dark:text-gray-500 mt-2 bangla-text"><span class="num-display">${att}</span> / <span class="num-display">${total}</span> টি ক্লাস</p>
     </div>
-    <h3 class="font-bold mb-2 dark:text-white bangla-text">📋 হাজিরার ইতিহাস</h3>
-    <div class="space-y-1 mb-6 max-h-60 overflow-y-auto">
+
+    <!-- আমার ক্লাস রুটিন -->
+    <h3 class="font-bold text-lg mb-3 dark:text-white bangla-text flex items-center gap-2"><span>📅</span> আমার ক্লাস রুটিন</h3>
+    ${routines.length ? `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+        ${Object.entries(groupedRoutines).map(([d, items]) => `
+          <div class="bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
+            <div class="bg-indigo-100 dark:bg-indigo-900/50 px-4 py-2 border-b border-indigo-200 dark:border-indigo-700">
+              <h4 class="font-bold text-indigo-800 dark:text-indigo-200 bangla-text">${bnDay[d] || escapeHtml(d)}</h4>
+            </div>
+            <div class="divide-y divide-gray-100 dark:divide-gray-700">
+              ${items.map(r => `
+                <div class="p-3">
+                  <div class="flex justify-between items-start gap-2">
+                    <div>
+                      <span class="bg-indigo-50 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-bold num-display">${escapeHtml(r.time_slot)}</span>
+                      <span class="font-bold text-sm dark:text-white bangla-text ml-1">${r.course_name ? escapeHtml(r.course_name) + ' - ' : ''}${escapeHtml(r.course_code)}</span>
+                    </div>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 bangla-text">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '<p class="text-gray-400 text-sm mb-8 bangla-text bg-gray-50 dark:bg-gray-800 p-4 rounded-xl text-center">এই ইয়ারের জন্য কোনো রুটিন পাওয়া যায়নি</p>'}
+
+    <!-- হাজিরার ইতিহাস -->
+    <h3 class="font-bold text-lg mb-3 dark:text-white bangla-text flex items-center gap-2"><span>📋</span> হাজিরার ইতিহাস</h3>
+    <div class="space-y-1 mb-8 max-h-60 overflow-y-auto">
       ${records?.length ? records.map(r => {
         const ic = { present: '✅', absent: '❌', late: '⏰', excused: '📝' };
-        return `<div class="bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-xl flex justify-between text-sm dark:text-white">
+        return `<div class="bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-xl flex justify-between text-sm dark:text-white">
           <span class="bangla-text">${ic[r.status] || '✅'} <span class="num-display">${escapeHtml(r.attendance_sessions?.course_code || '-')}</span></span>
           <span class="text-gray-500 dark:text-gray-400 num-display">${escapeHtml(r.attendance_sessions?.date || '')}</span>
         </div>`;
       }).join('') : '<p class="text-gray-400 text-sm bangla-text">কোনো রেকর্ড নেই</p>'}
     </div>
-    <h3 class="font-bold mb-2 dark:text-white bangla-text">📢 নোটিশ</h3>
+
+    <!-- নোটিশ -->
+    <h3 class="font-bold text-lg mb-3 dark:text-white bangla-text flex items-center gap-2"><span>📢</span> নোটিশ বোর্ড</h3>
     ${notices?.map(n => `
-      <div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/30 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/30'} p-3 rounded-xl mb-2">
-        <b class="dark:text-white bangla-text">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
-        <p class="text-sm text-gray-600 dark:text-gray-300 bangla-text">${escapeHtml(n.content)}</p>
+      <div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-4 rounded-r-xl mb-2 shadow-sm">
+        <b class="dark:text-white bangla-text text-base">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
+        <p class="text-sm text-gray-600 dark:text-gray-300 bangla-text mt-1">${escapeHtml(n.content)}</p>
       </div>`).join('') || '<p class="text-gray-400 text-sm bangla-text">কোনো নোটিশ নেই</p>'}
   `;
 }
@@ -4097,6 +4205,7 @@ async function loadStudentData() {
   updateThemeIcon();
   updateOnlineStatus();
   setInterval(updateOnlineStatus, 30000);
+  loadPublicNotices();
   const { data: { session } } = await db.auth.getSession();
   if (session) {
     const { data: t } = await db.from('teachers').select('is_admin').eq('auth_user_id', session.user.id).maybeSingle();
