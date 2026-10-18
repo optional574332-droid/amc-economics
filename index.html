@@ -171,6 +171,7 @@
         📲 ইনস্টল
       </button>
 
+      <button onclick="showSection('notice')" class="bg-pink-500 text-white px-3 py-2 rounded-lg btn-pop bangla-text">📢 নোটিশ</button>
       <button onclick="showSection('teacherDirectory')" class="bg-cyan-500 text-white px-3 py-2 rounded-lg btn-pop bangla-text">👨‍🏫 ডিরেক্টরি</button>
       <button onclick="toggleTheme()" id="themeToggleBtn" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop text-lg">🌙</button>
       <button onclick="showSection('adminLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop bangla-text">অ্যাডমিন</button>
@@ -180,7 +181,10 @@
   </div>
 </nav>
 
-<section id="homeSection" class="fade-in max-w-lg mx-auto mt-8 px-4">
+<section id="homeSection" class="fade-in max-w-2xl mx-auto mt-8 px-4">
+  <!-- নোটিশ বোর্ড -->
+  <div id="publicNoticeBoard" class="mb-4"></div>
+
   <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 text-center">
     <div class="text-6xl mb-3">📝</div>
     <h2 class="text-3xl font-bold text-gray-800 dark:text-white mb-2 bangla-text">হাজিরা দিন</h2>
@@ -199,6 +203,20 @@
     <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-4 bangla-text">👨‍🏫 শিক্ষক পরিচিতি</h2>
     <input id="dirSearch" placeholder="নাম বা বিষয় দিয়ে খুঁজুন..." class="w-full border-2 rounded-xl p-3 mb-4 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text" oninput="loadTeacherDirectory()">
     <div id="directoryList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  </div>
+</section>
+
+<!-- Public Notice Board (সবার জন্য, লগইন ছাড়াই) -->
+<section id="noticeSection" class="hidden fade-in max-w-3xl mx-auto mt-6 px-4 pb-20">
+  <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-6">
+    <div class="flex justify-between items-center mb-4 gap-2 flex-wrap">
+      <h2 class="text-2xl font-bold text-gray-800 dark:text-white bangla-text">📢 নোটিশ বোর্ড</h2>
+      <div class="flex gap-2">
+        <button onclick="loadAllPublicNotices()" class="bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 px-3 py-1 rounded-lg text-sm btn-pop bangla-text">🔄 রিফ্রেশ</button>
+        <button onclick="showSection('home')" class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1 rounded-lg text-sm btn-pop bangla-text">← হোম</button>
+      </div>
+    </div>
+    <div id="publicNoticeFullList" class="space-y-3"></div>
   </div>
 </section>
 
@@ -262,6 +280,7 @@
         <button onclick="logout()" class="bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-300 px-3 py-1 rounded-lg text-sm bangla-text">লগআউট</button>
       </div>
     </div>
+    <div id="scheduledClassBannerContainer"></div>
     <div id="activePinBannerContainer"></div>
     <div class="flex gap-2 mb-6 flex-wrap text-sm">
       <button onclick="showTeacherTab('takeAttendance')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg btn-pop bangla-text">হাজিরা নিন</button>
@@ -611,42 +630,117 @@ function showSection(id) {
   const t = document.getElementById(id + 'Section');
   if (t) { t.classList.remove('hidden'); t.classList.add('fade-in'); }
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  if (id === 'teacherDirectory') loadTeacherDirectory();
+  if (id === 'teacherDirectory') loadTeacherDirectory(true);
+  if (id === 'notice') loadAllPublicNotices();
+  if (id === 'home') loadPublicNotices();
+}
+
+// ============================================================
+// COURSE INFO HELPERS — "Code - Short Name/Name" দেখানোর জন্য
+// ============================================================
+let courseInfoCache = null;
+let courseInfoLoadedAt = 0;
+
+async function getCourseInfoMap(force = false) {
+  if (!force && courseInfoCache && (Date.now() - courseInfoLoadedAt) < 120000) return courseInfoCache;
+  const map = {};
+  try {
+    const { data: oldC } = await db.from('courses').select('course_code, course_name');
+    (oldC || []).forEach(c => {
+      const k = String(c.course_code || '').trim().toUpperCase();
+      if (k && c.course_name) map[k] = { name: c.course_name, short: '' };
+    });
+  } catch (e) { console.warn('courses load', e); }
+  try {
+    const { data: newC } = await db.from('courses_new').select('course_code, course_name, short_code');
+    (newC || []).forEach(c => {
+      const k = String(c.course_code || '').trim().toUpperCase();
+      if (!k) return;
+      map[k] = { name: c.course_name || (map[k] && map[k].name) || '', short: c.short_code || '' };
+    });
+  } catch (e) { console.warn('courses_new load', e); }
+  courseInfoCache = map;
+  courseInfoLoadedAt = Date.now();
+  return map;
+}
+function invalidateCourseInfo() { courseInfoCache = null; courseInfoLoadedAt = 0; }
+
+function courseInfo(code) {
+  const k = String(code || '').trim().toUpperCase();
+  return (courseInfoCache && courseInfoCache[k]) || { name: '', short: '' };
+}
+// ছোট নাম থাকলে ছোট নাম, না থাকলে পুরো নাম
+function courseShortOrName(code, fallbackName) {
+  const i = courseInfo(code);
+  return i.short || i.name || fallbackName || '';
+}
+// "22205 - Macro" (নাম না পেলে শুধু কোড)
+function courseLabel(code, fallbackName) {
+  const n = courseShortOrName(code, fallbackName);
+  return n ? `${code} - ${n}` : String(code || '');
 }
 
 // ============================================================
 // Teacher Directory Loader
 // ============================================================
-async function loadTeacherDirectory() {
-  const search = (document.getElementById('dirSearch')?.value || '').trim().toLowerCase();
+let teacherDirCache = null;     // সর্বশেষ সফলভাবে পাওয়া শিক্ষক তালিকা
+let teacherDirLoading = false;  // নেটওয়ার্ক রিকোয়েস্ট চলছে কিনা
+try {
+  const saved = localStorage.getItem('amc_teacher_dir_cache');
+  if (saved) teacherDirCache = JSON.parse(saved);
+} catch (e) { teacherDirCache = null; }
+
+// is_active: null / খালি / অনুপস্থিত হলে শিক্ষক "সক্রিয়" ধরা হবে। শুধু স্পষ্টভাবে false/0/'inactive' হলে লুকানো হবে।
+function isTeacherActive(t) {
+  const v = t ? t.is_active : undefined;
+  if (v === null || v === undefined || v === '') return true;
+  if (v === false || v === 0) return false;
+  const str = String(v).trim().toLowerCase();
+  return !(str === 'false' || str === '0' || str === 'inactive' || str === 'no');
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('নেটওয়ার্ক ধীর — সময় শেষ হয়ে গেছে')), ms))
+  ]);
+}
+
+async function fetchTeacherDirectoryData(retries = 2) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      // শুধু প্রয়োজনীয় কলাম — যাতে PIN সংক্রান্ত কোনো তথ্য পাবলিকলি না আসে
+      const res = await withTimeout(
+        db.from('teachers').select('id, name, designation, biography, mobile, is_active, subject').order('name'),
+        12000
+      );
+      if (res.error) throw res.error;
+      return res.data || [];
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+    }
+  }
+  throw lastErr || new Error('অজানা ত্রুটি');
+}
+
+function renderTeacherDirectory() {
   const el = document.getElementById('directoryList');
   if (!el) return;
-
-  el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full">⏳ লোড হচ্ছে...</p>';
-
-  // শুধু প্রয়োজনীয় কলাম — যাতে PIN সংক্রান্ত কোনো তথ্য পাবলিকলি না আসে
-  const { data, error } = await db.from('teachers')
-    .select('id, name, designation, biography, mobile, is_active, subject')
-    .order('name');
-
-  if (error) {
-    el.innerHTML = `<p class="text-red-500 bangla-text col-span-full">❌ ${escapeHtml(error.message)}</p>`;
-    return;
-  }
-
-  const filtered = (data || []).filter(t => {
-    if (t.is_active === false) return false;
-    const nameMatch = (t.name || '').toLowerCase().includes(search);
-    const subMatch = (t.subject || '').toLowerCase().includes(search);
-    return nameMatch || subMatch;
+  const search = (document.getElementById('dirSearch')?.value || '').trim().toLowerCase();
+  const list = (teacherDirCache || []).filter(t => {
+    if (!isTeacherActive(t)) return false;
+    if (!search) return true;
+    return (t.name || '').toLowerCase().includes(search) || (t.subject || '').toLowerCase().includes(search);
   });
 
-  if (!filtered.length) {
+  if (!list.length) {
     el.innerHTML = '<p class="text-center text-gray-500 bangla-text col-span-full py-8">কোনো শিক্ষক পাওয়া যায়নি</p>';
     return;
   }
 
-  el.innerHTML = filtered.map(t => `
+  el.innerHTML = list.map(t => `
     <div class="bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 p-5 rounded-2xl shadow-sm hover:shadow-md transition fade-in flex flex-col justify-between">
       <div>
         <div class="flex justify-between items-start mb-2">
@@ -667,6 +761,123 @@ async function loadTeacherDirectory() {
       </div>
     </div>
   `).join('');
+}
+
+// forceReload = true হলে সার্ভার থেকে নতুন করে আনবে। সার্চ বক্সে টাইপ করলে (forceReload=false) শুধু আগের তালিকা ফিল্টার হবে।
+async function loadTeacherDirectory(forceReload = false) {
+  const el = document.getElementById('directoryList');
+  if (!el) return;
+
+  // তালিকা আগে থেকেই আছে এবং রিলোড দরকার নেই → শুধু ফিল্টার করে দেখাও
+  if (teacherDirCache && !forceReload) { renderTeacherDirectory(); return; }
+
+  // অন্য একটি রিকোয়েস্ট চলছে → শেষ হলে নিজেই রেন্ডার হবে
+  if (teacherDirLoading) return;
+
+  // আগের সেভ করা তালিকা থাকলে সঙ্গে সঙ্গে দেখাও (ধীর নেটওয়ার্কে খালি স্ক্রিন এড়াতে), না থাকলে স্পিনার
+  if (teacherDirCache) {
+    renderTeacherDirectory();
+  } else {
+    el.innerHTML = `
+      <div class="col-span-full flex flex-col items-center justify-center py-10 gap-3">
+        <div class="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p class="text-gray-500 dark:text-gray-400 bangla-text text-sm">শিক্ষকদের তালিকা লোড হচ্ছে...</p>
+      </div>`;
+  }
+
+  teacherDirLoading = true;
+  try {
+    const data = await fetchTeacherDirectoryData(2);
+    teacherDirCache = data;
+    try { localStorage.setItem('amc_teacher_dir_cache', JSON.stringify(data)); } catch (e) {}
+    renderTeacherDirectory();   // "পাওয়া যায়নি" শুধু সার্ভার সফলভাবে উত্তর দেওয়ার পরেই দেখাবে
+  } catch (err) {
+    if (teacherDirCache) {
+      // পুরোনো তালিকা আছে — সেটাই দেখাও, শুধু ছোট সতর্কতা
+      renderTeacherDirectory();
+      toastWarning('ইন্টারনেট ধীর — আগের সেভ করা তালিকা দেখানো হচ্ছে');
+    } else {
+      el.innerHTML = `
+        <div class="col-span-full text-center py-8">
+          <p class="text-red-500 bangla-text mb-3">❌ তালিকা লোড করা যায়নি</p>
+          <p class="text-xs text-gray-400 mb-4 bangla-text">${escapeHtml(err.message || '')}</p>
+          <button onclick="loadTeacherDirectory(true)" class="bg-indigo-600 text-white px-5 py-2 rounded-xl font-bold btn-pop bangla-text">🔄 আবার চেষ্টা করুন</button>
+        </div>`;
+    }
+  } finally {
+    teacherDirLoading = false;
+  }
+}
+
+// ============================================================
+// PUBLIC NOTICE BOARD (Home Screen)
+// ============================================================
+async function loadPublicNotices() {
+  const el = document.getElementById('publicNoticeBoard');
+  if (!el) return;
+  const { data: notices } = await db.from('notices')
+    .select('*')
+    .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
+    .order('created_at', { ascending: false })
+    .limit(3);
+  if (!notices || !notices.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `
+    <div class="bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-2xl shadow-lg p-4">
+      <h3 class="font-bold text-gray-800 dark:text-white mb-3 bangla-text flex items-center gap-2">
+        <span>📢</span> সর্বশেষ নোটিশ
+      </h3>
+      <div class="space-y-2">
+        ${notices.map(n => `
+          <div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-3 rounded-r-xl">
+            <b class="dark:text-white bangla-text text-sm">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
+            <p class="text-xs text-gray-600 dark:text-gray-300 bangla-text mt-1 line-clamp-2">${escapeHtml(n.content)}</p>
+          </div>
+        `).join('')}
+      </div>
+      <button onclick="showSection('notice')" class="w-full mt-3 text-center text-pink-600 dark:text-pink-300 font-bold text-sm py-2 rounded-xl hover:bg-pink-50 dark:hover:bg-pink-900/20 btn-pop bangla-text">সব নোটিশ দেখুন →</button>
+    </div>
+  `;
+}
+
+async function loadAllPublicNotices() {
+  const el = document.getElementById('publicNoticeFullList');
+  if (!el) return;
+  el.innerHTML = `<div class="flex flex-col items-center justify-center py-8 gap-3"><div class="w-9 h-9 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p class="text-gray-500 dark:text-gray-400 bangla-text text-sm">লোড হচ্ছে...</p></div>`;
+  try {
+    const res = await withTimeout(
+      db.from('notices').select('*')
+        .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
+        .order('created_at', { ascending: false }).limit(200),
+      12000
+    );
+    if (res.error) throw res.error;
+    const list = res.data || [];
+    if (!list.length) {
+      el.innerHTML = '<p class="text-center text-gray-400 py-8 bangla-text">এই মুহূর্তে কোনো নোটিশ নেই</p>';
+      return;
+    }
+    el.innerHTML = list.map(n => {
+      const urgent = n.priority === 'urgent';
+      const dt = n.created_at ? new Date(n.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+      return `
+        <div class="${urgent ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-4 rounded-r-xl shadow-sm fade-in">
+          <div class="flex justify-between items-start gap-2">
+            <b class="dark:text-white bangla-text text-base">${urgent ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
+            <span class="text-xs text-gray-400 dark:text-gray-500 num-display whitespace-nowrap">${escapeHtml(dt)}</span>
+          </div>
+          <p class="text-sm text-gray-700 dark:text-gray-300 bangla-text mt-2 whitespace-pre-line">${escapeHtml(n.content)}</p>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    el.innerHTML = `
+      <div class="text-center py-8">
+        <p class="text-red-500 bangla-text mb-3">❌ নোটিশ লোড করা যায়নি</p>
+        <button onclick="loadAllPublicNotices()" class="bg-pink-600 text-white px-5 py-2 rounded-xl font-bold btn-pop bangla-text">🔄 আবার চেষ্টা করুন</button>
+      </div>`;
+  }
 }
 
 // ============================================================
@@ -695,9 +906,27 @@ async function submitPin() {
       return showModal('❌', 'ভুল PIN', 'এই PIN সঠিক নয় বা মেয়াদ শেষ', 'red');
     }
     currentPinSession = sessions[0];
+    await enrichPinSession(currentPinSession);   // শিক্ষকের নাম ও কোর্সের নাম যোগ
     localStorage.setItem('amc_last_session_' + pin, JSON.stringify(currentPinSession));
     showAttendanceForm();
   } finally { hideGlobalLoader(); }
+}
+
+// নিশ্চিতকরণ স্ক্রিনের জন্য: শিক্ষকের নাম + কোর্সের নাম সেশন অবজেক্টে বসানো (ব্যর্থ হলেও হাজিরা আটকাবে না)
+async function enrichPinSession(sess) {
+  if (!sess) return sess;
+  try {
+    if (sess.teacher_id && !sess.teacher_name) {
+      const { data: t } = await db.from('teachers').select('name').eq('id', sess.teacher_id).maybeSingle();
+      if (t && t.name) sess.teacher_name = t.name;
+    }
+  } catch (e) { console.warn('teacher name', e); }
+  try {
+    await getCourseInfoMap();
+    const info = courseInfo(sess.course_code);
+    sess.course_name = info.name || info.short || sess.course_name || '';
+  } catch (e) { console.warn('course name', e); }
+  return sess;
 }
 
 function showAttendanceForm() {
@@ -898,6 +1127,7 @@ async function findAndSubmit() {
     return;
   }
 
+  if (navigator.onLine && (!s.teacher_name || !s.course_name)) await enrichPinSession(s);
   showConfirmationScreen(student, s);
 }
 
@@ -922,12 +1152,22 @@ function showConfirmationScreen(student, session) {
         </p>
       </div>
 
-      <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-3 mb-5">
-        <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">Course</p>
-        <p class="text-base font-bold text-gray-800 dark:text-white num-display">
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-5">
+        <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">Course Code</p>
+        <p class="text-5xl font-bold text-indigo-700 dark:text-indigo-300 num-display leading-tight">
           ${escapeHtml(session.course_code)}
         </p>
-        <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text mt-2">Date</p>
+        ${session.course_name ? `
+        <p class="text-base font-bold text-gray-700 dark:text-gray-200 bangla-text mt-1">
+          ${escapeHtml(session.course_name)}
+        </p>` : ''}
+        <div class="border-t border-gray-200 dark:border-gray-600 my-3"></div>
+        ${session.teacher_name ? `
+        <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">Teacher</p>
+        <p class="text-base font-bold text-gray-800 dark:text-white bangla-text mb-2">
+          👨‍🏫 ${escapeHtml(session.teacher_name)}
+        </p>` : ''}
+        <p class="text-xs text-gray-500 dark:text-gray-400 bangla-text">Date</p>
         <p class="text-base font-bold text-gray-800 dark:text-white num-display">
           ${escapeHtml(session.date)}
         </p>
@@ -1058,6 +1298,8 @@ async function logout() {
   if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
   if (activeSessionCheckInterval) { clearInterval(activeSessionCheckInterval); activeSessionCheckInterval = null; }
   if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
+  if (scheduledBannerInterval) { clearInterval(scheduledBannerInterval); scheduledBannerInterval = null; }
+  const sBanner = document.getElementById('scheduledClassBannerContainer'); if (sBanner) sBanner.innerHTML = '';
   await db.auth.signOut();
   currentTeacher = null; currentStudent = null;
   if (liveChannel) { await db.removeChannel(liveChannel); liveChannel = null; }
@@ -1129,22 +1371,33 @@ async function showAdminTab(tab) {
   }
   else if (tab === 'academicSetup') {
     el.innerHTML = `
-      <div class="space-y-4 max-w-lg">
+      <div class="space-y-4 max-w-3xl">
         <h3 class="text-lg font-bold dark:text-white bangla-text">🎓 একাডেমিক সেটআপ</h3>
-        <div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl">
+        <div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl max-w-lg">
           <h4 class="font-bold text-sm mb-3 dark:text-white bangla-text">📚 নতুন কোর্স যোগ করুন</h4>
-          <select id="acCategory" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+          <select id="acCategory" onchange="acFillYears('acCategory','acYear')" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
             <option>Higher Secondary</option><option>Honours</option><option>Masters</option>
           </select>
-          <select id="acYear" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
-            <option>XI</option><option>XII</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option><option>Preliminary</option><option>Final</option>
-          </select>
+          <select id="acYear" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text"></select>
           <input id="acName" placeholder="কোর্সের নাম (যেমন: Macroeconomics)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
           <input id="acCode" placeholder="কোর্স কোড (যেমন: 22205)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
           <input id="acShort" placeholder="শর্ট কোড (যেমন: Macro)" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
           <button onclick="addAcademicCourse()" class="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full bangla-text">সংরক্ষণ</button>
         </div>
+
+        <div class="bg-white dark:bg-gray-800 border-2 border-teal-100 dark:border-teal-800 rounded-xl p-4">
+          <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+            <h4 class="font-bold dark:text-white bangla-text">📋 কোর্স তালিকা <span id="acCourseCount" class="text-xs text-gray-400 num-display"></span></h4>
+            <select id="acFilterCategory" onchange="renderAcademicCourseList()" class="border-2 rounded-lg p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600 bangla-text">
+              <option value="">সব ক্যাটাগরি</option>
+              <option>Higher Secondary</option><option>Honours</option><option>Masters</option>
+            </select>
+          </div>
+          <div id="acCourseList"></div>
+        </div>
       </div>`;
+    acFillYears('acCategory', 'acYear');
+    loadAcademicCourseList();
   }
   else if (tab === 'manageStudent') {
     el.innerHTML = `
@@ -1439,6 +1692,236 @@ function fillRoutineCourse() {
   }
 }
 
+// ---------- ক্যাটাগরি → ইয়ার ----------
+const AC_CATEGORY_ORDER = ['Higher Secondary', 'Honours', 'Masters'];
+const AC_YEAR_MAP = {
+  'Higher Secondary': ['XI', 'XII'],
+  'Honours': ['1st Year', '2nd Year', '3rd Year', '4th Year'],
+  'Masters': ['Preliminary', 'Final']
+};
+
+function acFillYears(catId, yearId, selected) {
+  const cat = document.getElementById(catId)?.value;
+  const ySel = document.getElementById(yearId);
+  if (!ySel) return;
+  const years = AC_YEAR_MAP[cat] || [];
+  ySel.innerHTML = years.map(y => `<option value="${attrEsc(y)}"${y === selected ? ' selected' : ''}>${escapeHtml(y)}</option>`).join('');
+}
+
+// ---------- কোর্স তালিকা ----------
+let acCoursesCache = [];
+
+async function loadAcademicCourseList() {
+  const box = document.getElementById('acCourseList');
+  if (!box) return;
+  box.innerHTML = `<div class="flex flex-col items-center justify-center py-8 gap-3"><div class="w-9 h-9 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p class="text-gray-500 dark:text-gray-400 bangla-text text-sm">লোড হচ্ছে...</p></div>`;
+  try {
+    const res = await withTimeout(db.from('courses_new').select('*').order('course_code'), 12000);
+    if (res.error) throw res.error;
+    acCoursesCache = res.data || [];
+    renderAcademicCourseList();
+  } catch (err) {
+    box.innerHTML = `
+      <div class="text-center py-6">
+        <p class="text-red-500 bangla-text mb-2">❌ তালিকা লোড হয়নি</p>
+        <p class="text-xs text-gray-400 mb-3">${escapeHtml(err.message || '')}</p>
+        <button onclick="loadAcademicCourseList()" class="bg-teal-600 text-white px-4 py-2 rounded-xl font-bold btn-pop bangla-text">🔄 আবার চেষ্টা করুন</button>
+      </div>`;
+  }
+}
+
+function renderAcademicCourseList() {
+  const box = document.getElementById('acCourseList');
+  if (!box) return;
+  const filterCat = document.getElementById('acFilterCategory')?.value || '';
+  const items = acCoursesCache.map((c, idx) => ({ c, idx })).filter(x => !filterCat || x.c.category === filterCat);
+  const cnt = document.getElementById('acCourseCount');
+  if (cnt) cnt.textContent = `(${items.length})`;
+
+  if (!items.length) {
+    box.innerHTML = '<p class="text-center text-gray-400 py-6 bangla-text text-sm">কোনো কোর্স যোগ করা হয়নি</p>';
+    return;
+  }
+
+  const catRank = c => { const i = AC_CATEGORY_ORDER.indexOf(c.category); return i === -1 ? 99 : i; };
+  const yearRank = c => { const i = (AC_YEAR_MAP[c.category] || []).indexOf(c.year_name); return i === -1 ? 99 : i; };
+  items.sort((x, y) =>
+    catRank(x.c) - catRank(y.c) ||
+    yearRank(x.c) - yearRank(y.c) ||
+    String(x.c.course_code || '').localeCompare(String(y.c.course_code || ''), undefined, { numeric: true })
+  );
+
+  const groups = {};
+  items.forEach(x => {
+    const key = `${x.c.category || '—'} · ${x.c.year_name || '—'}`;
+    (groups[key] = groups[key] || []).push(x);
+  });
+
+  box.innerHTML = Object.entries(groups).map(([title, list]) => `
+    <div class="mb-4">
+      <p class="text-xs font-bold text-teal-700 dark:text-teal-300 mb-1 bangla-text">${escapeHtml(title)} <span class="text-gray-400">(${list.length})</span></p>
+      ${list.map(({ c, idx }) => `
+        <div class="flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-lg mb-1">
+          <div class="min-w-0 flex-1">
+            <p class="font-bold text-sm dark:text-white bangla-text break-words"><span class="num-display">${escapeHtml(c.course_code)}</span> - ${escapeHtml(c.short_code || c.course_name || '')}</p>
+            ${c.short_code && c.course_name ? `<p class="text-xs text-gray-500 dark:text-gray-400 bangla-text break-words">${escapeHtml(c.course_name)}</p>` : ''}
+          </div>
+          <button onclick="editAcademicCourse(${idx})" class="bg-amber-100 text-amber-700 hover:bg-amber-500 hover:text-white px-2 py-1 rounded text-sm transition btn-pop" title="Edit">✏️</button>
+          <button onclick="deleteAcademicCourse(${idx})" class="bg-red-100 text-red-600 hover:bg-red-600 hover:text-white px-2 py-1 rounded text-sm transition btn-pop" title="Delete">🗑️</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+// কোন কোর্স কোথায় ব্যবহৃত হচ্ছে (ম্যাপিং / রুটিন / হাজিরা সেশন)
+async function getCourseUsage(code) {
+  const codes = [...new Set([String(code), String(code).toUpperCase()])];
+  const out = { mapped: 0, routine: 0, sessions: 0 };
+  try {
+    const { data } = await db.from('teacher_courses').select('id, class_day, time_slot').in('course_code', codes);
+    (data || []).forEach(r => { out.mapped++; if (r.class_day && r.time_slot) out.routine++; });
+  } catch (e) { console.warn(e); }
+  try {
+    const { data, error } = await db.from('class_routines').select('id').in('course_code', codes);
+    if (!error) out.routine += (data || []).length;
+  } catch (e) { /* টেবিল না থাকলে সমস্যা নেই */ }
+  try {
+    const { count } = await db.from('attendance_sessions').select('id', { count: 'exact', head: true }).in('course_code', codes);
+    out.sessions = count || 0;
+  } catch (e) { console.warn(e); }
+  return out;
+}
+
+function acMatch(q, c) {
+  if (c.id !== undefined && c.id !== null) return q.eq('id', c.id);
+  return q.eq('category', c.category).eq('year_name', c.year_name).eq('course_code', c.course_code);
+}
+
+async function editAcademicCourse(idx) {
+  const c = acCoursesCache[idx];
+  if (!c) return;
+  const st = 'width:100%;margin:2px 0 10px;padding:9px;border:2px solid #d1d5db;border-radius:10px;font-size:15px;color:#111;background:#fff;box-sizing:border-box';
+  const lb = 'display:block;font-size:12px;font-weight:700;color:#4b5563;text-align:left';
+  const cats = AC_CATEGORY_ORDER.includes(c.category) || !c.category ? AC_CATEGORY_ORDER : [c.category, ...AC_CATEGORY_ORDER];
+
+  const res = await Swal.fire({
+    title: '✏️ কোর্স এডিট',
+    html: `
+      <div>
+        <label style="${lb}">Category</label>
+        <select id="swCat" style="${st}">${cats.map(k => `<option value="${attrEsc(k)}"${k === c.category ? ' selected' : ''}>${escapeHtml(k)}</option>`).join('')}</select>
+        <label style="${lb}">Year</label>
+        <select id="swYear" style="${st}"></select>
+        <label style="${lb}">কোর্সের নাম</label>
+        <input id="swName" style="${st}" value="${attrEsc(c.course_name)}">
+        <label style="${lb}">কোর্স কোড</label>
+        <input id="swCode" style="${st}" value="${attrEsc(c.course_code)}">
+        <label style="${lb}">শর্ট কোড / শর্ট নাম</label>
+        <input id="swShort" style="${st}" value="${attrEsc(c.short_code)}">
+      </div>`,
+    showCancelButton: true,
+    confirmButtonText: 'আপডেট',
+    cancelButtonText: 'বাতিল',
+    confirmButtonColor: '#0d9488',
+    focusConfirm: false,
+    didOpen: () => {
+      const fill = (sel) => {
+        acFillYears('swCat', 'swYear', sel);
+        const ySel = document.getElementById('swYear');
+        // পুরোনো/অন্যরকম ইয়ার নাম থাকলে সেটাও রাখা হবে যাতে ডেটা হারিয়ে না যায়
+        if (sel && ySel && ![...ySel.options].some(o => o.value === sel)) {
+          const o = document.createElement('option'); o.value = sel; o.textContent = sel; o.selected = true; ySel.prepend(o);
+        }
+      };
+      fill(c.year_name);
+      document.getElementById('swCat').addEventListener('change', () => acFillYears('swCat', 'swYear'));
+    },
+    preConfirm: () => {
+      const v = {
+        category: document.getElementById('swCat').value,
+        year_name: document.getElementById('swYear').value,
+        course_name: document.getElementById('swName').value.trim(),
+        course_code: document.getElementById('swCode').value.trim(),
+        short_code: document.getElementById('swShort').value.trim()
+      };
+      if (!v.course_name || !v.course_code) { Swal.showValidationMessage('কোর্সের নাম ও কোড দিন'); return false; }
+      return v;
+    }
+  });
+  if (!res.isConfirmed) return;
+  const v = res.value;
+
+  const dup = acCoursesCache.some((o, i) => i !== idx && o.category === v.category && o.year_name === v.year_name && String(o.course_code).toLowerCase() === v.course_code.toLowerCase());
+  if (dup) return toastWarning('এই ক্যাটাগরি ও ইয়ারে এই কোড আগেই আছে');
+
+  showGlobalLoader();
+  try {
+    // কোড বদলালে: ম্যাপিং/রুটিন/হাজিরা আগের কোডেই থেকে যাবে — তাই আগে সতর্ক করা হচ্ছে
+    if (v.course_code !== c.course_code) {
+      const u = await getCourseUsage(c.course_code);
+      if (u.mapped || u.routine || u.sessions) {
+        hideGlobalLoader();
+        const ok = await Swal.fire({
+          icon: 'warning',
+          title: 'কোর্স কোড বদলাচ্ছেন!',
+          html: `<div style="text-align:left;font-size:14px">
+            এই কোর্সটি ব্যবহৃত হচ্ছে:<br>
+            • শিক্ষক ম্যাপিং: <b>${u.mapped}</b> টি<br>
+            • রুটিন: <b>${u.routine}</b> টি<br>
+            • হাজিরা সেশন: <b>${u.sessions}</b> টি<br><br>
+            পুরোনো ম্যাপিং/হাজিরা <b>পুরোনো কোডেই</b> থেকে যাবে, নতুন কোডের সাথে অটো যুক্ত হবে না। তবুও বদলাবেন?</div>`,
+          showCancelButton: true, confirmButtonText: 'হ্যাঁ, বদলান', cancelButtonText: 'বাতিল',
+          confirmButtonColor: '#dc2626', reverseButtons: true
+        });
+        if (!ok.isConfirmed) return;
+        showGlobalLoader();
+      }
+    }
+    const { error } = await acMatch(db.from('courses_new').update(v), c);
+    if (error) throw error;
+    invalidateCourseInfo();
+    toastSuccess('কোর্স আপডেট হয়েছে');
+    await loadAcademicCourseList();
+  } catch (e) { toastError(e.message || 'আপডেট ব্যর্থ'); }
+  finally { hideGlobalLoader(); }
+}
+
+async function deleteAcademicCourse(idx) {
+  const c = acCoursesCache[idx];
+  if (!c) return;
+  showGlobalLoader();
+  let u;
+  try { u = await getCourseUsage(c.course_code); } finally { hideGlobalLoader(); }
+
+  const inUse = u.mapped > 0 || u.routine > 0;
+  const label = `${c.course_code} - ${c.short_code || c.course_name || ''}`;
+  const html = inUse
+    ? `<div style="text-align:left;font-size:14px">
+         <b>${escapeHtml(label)}</b><br><br>
+         ⚠️ <b>সতর্কতা:</b> এই কোর্স ইতিমধ্যে ব্যবহৃত হচ্ছে —<br>
+         • শিক্ষক ম্যাপিং: <b>${u.mapped}</b> টি<br>
+         • রুটিনে: <b>${u.routine}</b> টি<br>
+         ${u.sessions ? `• হাজিরা সেশন: <b>${u.sessions}</b> টি<br>` : ''}
+         <br>এখানে মুছলে শুধু কোর্স তালিকা থেকে সরবে। ম্যাপিং/রুটিন/হাজিরা এখান থেকে মুছবে না, কিন্তু নতুন করে ড্রপডাউনে এই কোর্স আর পাওয়া যাবে না। নিশ্চিত?</div>`
+    : `<div style="text-align:left;font-size:14px"><b>${escapeHtml(label)}</b><br><br>এই কোর্সটি কোথাও ম্যাপ বা রুটিনে নেই। মুছে ফেলবেন?</div>`;
+
+  const ok = await Swal.fire({
+    icon: 'warning', title: inUse ? '⚠️ কোর্সটি ব্যবহৃত হচ্ছে!' : 'কোর্স মুছবেন?', html,
+    showCancelButton: true, confirmButtonText: 'হ্যাঁ, মুছুন', cancelButtonText: 'বাতিল',
+    confirmButtonColor: '#dc2626', cancelButtonColor: '#6b7280', reverseButtons: true
+  });
+  if (!ok.isConfirmed) return;
+
+  showGlobalLoader();
+  try {
+    const { error } = await acMatch(db.from('courses_new').delete(), c);
+    if (error) throw error;
+    invalidateCourseInfo();
+    toastSuccess('কোর্স মুছে ফেলা হয়েছে');
+    await loadAcademicCourseList();
+  } catch (e) { toastError(e.message || 'মুছতে ব্যর্থ'); }
+  finally { hideGlobalLoader(); }
+}
+
 async function addAcademicCourse() {
   const cat = document.getElementById('acCategory').value;
   const year = document.getElementById('acYear').value;
@@ -1446,18 +1929,69 @@ async function addAcademicCourse() {
   const code = document.getElementById('acCode').value.trim();
   const short = document.getElementById('acShort').value.trim();
   if (!name || !code) return toastWarning('কোর্সের নাম ও কোড দিন');
+  if (!year) return toastWarning('ইয়ার সিলেক্ট করুন');
+  if (acCoursesCache.some(o => o.category === cat && o.year_name === year && String(o.course_code).toLowerCase() === code.toLowerCase())) {
+    return toastWarning('এই ক্যাটাগরি ও ইয়ারে এই কোড আগেই আছে');
+  }
   showGlobalLoader();
   try {
     const { error } = await db.from('courses_new').insert([{
       category: cat, year_name: year, course_name: name, course_code: code, short_code: short
     }]);
     if (error) throw error;
+    invalidateCourseInfo();
     toastSuccess('কোর্স যোগ হয়েছে');
     document.getElementById('acName').value = '';
     document.getElementById('acCode').value = '';
     document.getElementById('acShort').value = '';
+    loadAcademicCourseList();
   } catch (e) { toastError(e.message); }
   finally { hideGlobalLoader(); }
+}
+
+// ============================================================
+// ROUTINE CONFLICT DETECTION (একই শিক্ষক / রুম / কোর্স একই সময়ে নয়)
+// ============================================================
+function normKey(v) { return String(v ?? '').trim().toLowerCase(); }
+
+async function checkScheduleConflict({ table, teacherId, courseCode, day, time, room }) {
+  const dayCol = table === 'class_routines' ? 'day_name' : 'class_day';
+  const { data, error } = await db.from(table).select('*').eq(dayCol, day).eq('time_slot', time);
+  if (error) throw error;
+  const rows = data || [];
+
+  const tRow = rows.find(r => String(r.teacher_id) === String(teacherId));
+  const cRow = rows.find(r => normKey(r.course_code) === normKey(courseCode));
+  const rRow = room ? rows.find(r => normKey(r.room_no) === normKey(room)) : null;
+  if (!tRow && !cRow && !rRow) return [];
+
+  await getCourseInfoMap();
+  const ids = [...new Set([tRow, cRow, rRow].filter(Boolean).map(r => r.teacher_id).filter(Boolean))];
+  const nameOf = {};
+  if (ids.length) {
+    const { data: ts } = await db.from('teachers').select('id, name').in('id', ids);
+    (ts || []).forEach(t => { nameOf[t.id] = t.name; });
+  }
+  const out = [];
+  if (tRow) out.push(`👨‍🏫 এই শিক্ষক এই সময়ে আগেই <b>${escapeHtml(courseLabel(tRow.course_code))}</b> ক্লাসে বুক আছেন।`);
+  if (rRow) out.push(`🏫 রুম <b>${escapeHtml(room)}</b> এই সময়ে আগেই বুক আছে (${escapeHtml(courseLabel(rRow.course_code))}, ${escapeHtml(nameOf[rRow.teacher_id] || 'অজানা শিক্ষক')})।`);
+  if (cRow) out.push(`📚 কোর্স <b>${escapeHtml(courseLabel(cRow.course_code))}</b> এই সময়ে আগেই বরাদ্দ আছে (${escapeHtml(nameOf[cRow.teacher_id] || 'অজানা শিক্ষক')})।`);
+  return out;
+}
+
+function showConflictAlert(list, day, time) {
+  return Swal.fire({
+    icon: 'warning',
+    title: '⚠️ Conflict!',
+    html: `<div style="text-align:left;font-size:14px">
+      <p style="margin-bottom:8px"><b>এই শিক্ষক / রুম / কোর্স এই সময়ে আগেই বুক করা আছে।</b></p>
+      <p style="margin-bottom:8px;color:#6b7280">${escapeHtml(day)} · ${escapeHtml(time)}</p>
+      ${list.map(t => `<p style="margin:6px 0">${t}</p>`).join('')}
+      <p style="margin-top:10px;color:#6b7280;font-size:12px">অন্য দিন/সময় বা অন্য শিক্ষক বেছে নিন। কিছুই সংরক্ষণ হয়নি।</p>
+    </div>`,
+    confirmButtonText: 'ঠিক আছে',
+    confirmButtonColor: '#dc2626'
+  });
 }
 
 async function saveRoutine() {
@@ -1471,6 +2005,21 @@ async function saveRoutine() {
   if (year === 'XI' || year === 'XII') cat = 'Higher Secondary';
   else if (year === 'Preliminary' || year === 'Final') cat = 'Masters';
   if (!time || !year || !course || !teacher) return toastWarning('সময়, ইয়ার, কোর্স ও শিক্ষক দিন');
+
+  // ⚠️ কনফ্লিক্ট যাচাই — ডাটাবেসে সেভ করার আগেই
+  if (day && time) {
+    showGlobalLoader();
+    let conflicts;
+    try {
+      conflicts = await checkScheduleConflict({ table: 'class_routines', teacherId: teacher, courseCode: course, day, time, room });
+    } catch (e) {
+      hideGlobalLoader();
+      return toastError('কনফ্লিক্ট যাচাই করা যায়নি: ' + (e.message || 'নেটওয়ার্ক সমস্যা'));
+    }
+    hideGlobalLoader();
+    if (conflicts.length) return showConflictAlert(conflicts, day, time);
+  }
+
   showGlobalLoader();
   try {
     const { error } = await db.from('class_routines').insert([{
@@ -1955,6 +2504,21 @@ async function saveMapping() {
   const class_day = document.getElementById('mapDay').value;
   const time_slot = document.getElementById('mapTime').value;
   if (!teacher_id || !session || !year || !course_code) return toastWarning('শিক্ষক, সেশন, ইয়ার, কোর্স দিন');
+
+  // ⚠️ কনফ্লিক্ট যাচাই — ডাটাবেসে সেভ করার আগেই (দিন ও সময় দেওয়া থাকলে)
+  if (class_day && time_slot) {
+    showGlobalLoader();
+    let conflicts;
+    try {
+      conflicts = await checkScheduleConflict({ table: 'teacher_courses', teacherId: teacher_id, courseCode: course_code, day: class_day, time: time_slot, room: '' });
+    } catch (e) {
+      hideGlobalLoader();
+      return toastError('কনফ্লিক্ট যাচাই করা যায়নি: ' + (e.message || 'নেটওয়ার্ক সমস্যা'));
+    }
+    hideGlobalLoader();
+    if (conflicts.length) return showConflictAlert(conflicts, class_day, time_slot);
+  }
+
   showGlobalLoader();
   try {
     const { error: e1 } = await db.from('teacher_courses').insert({
@@ -1978,9 +2542,10 @@ async function saveMapping() {
 async function loadMappings() {
   const { data } = await db.from('teacher_courses').select('*, teachers(name)').order('created_at', { ascending: false }).limit(50);
   if (!data || !data.length) { document.getElementById('mappingList').innerHTML = '<p class="text-gray-400 text-sm bangla-text">কোনো ম্যাপিং নেই</p>'; return; }
+  await getCourseInfoMap();
   const h = await Promise.all(data.map(async m => {
     const { data: c } = await db.from('courses').select('course_name').eq('session', m.session).eq('year', m.year).eq('course_code', m.course_code).maybeSingle();
-    const dn = c?.course_name ? `${c.course_name}-${m.course_code}` : m.course_code;
+    const dn = courseLabel(m.course_code, c?.course_name);
     const dayTimeStr = (m.class_day && m.time_slot)
       ? `<span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] ml-1">${escapeHtml(m.class_day)}, ${escapeHtml(m.time_slot)}</span>`
       : '';
@@ -2047,6 +2612,7 @@ async function loadRoutineViewer() {
       const { data: courses } = await db.from('courses').select('course_code, session, year, course_name').in('course_code', courseCodes);
       courses?.forEach(c => { courseMap[`${c.session}|${c.year}|${c.course_code}`] = c.course_name; });
     }
+    await getCourseInfoMap();
     const processed = mappings.map(m => ({
       ...m,
       course_name: courseMap[`${m.session}|${m.year}|${m.course_code}`] || '',
@@ -2077,7 +2643,7 @@ async function loadRoutineViewer() {
                   <div class="flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-bold num-display">${escapeHtml(r.time_slot)}</span>
-                      <span class="font-bold dark:text-white bangla-text">${r.course_name ? escapeHtml(r.course_name) + ' - ' : ''}${escapeHtml(r.course_code)}</span>
+                      <span class="font-bold dark:text-white bangla-text">${escapeHtml(courseLabel(r.course_code, r.course_name))}</span>
                     </div>
                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 bangla-text">শিক্ষক: ${escapeHtml(r.teacher_name)}</p>
                   </div>
@@ -2119,7 +2685,7 @@ async function exportRoutinePDF() {
     head: [['Day', 'Time', 'Course', 'Teacher', 'Session/Year']],
     body: currentRoutineData.map(r => [
       r.class_day, r.time_slot,
-      (r.course_name ? r.course_name + ' - ' : '') + r.course_code,
+      courseLabel(r.course_code, r.course_name),
       r.teacher_name, r.session + ' · ' + r.year
     ]),
     startY: 22,
@@ -2220,7 +2786,8 @@ async function loadAttendanceReport() {
       const total = Object.values(cc).reduce((a, b) => a + b, 0);
       return { class_roll: stu.class_roll, reg_no: stu.reg_no || '', name: stu.name, courseCounts: cc, total };
     });
-    const dH = courses.map(c => c.course_name ? `${c.course_name}-${c.course_code}` : c.course_code);
+    await getCourseInfoMap();
+    const dH = courses.map(c => courseLabel(c.course_code, c.course_name));
     currentAttendanceData = { session, year, courses, displayHeaders: dH, report };
     area.innerHTML = `
       <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 bangla-text">
@@ -2700,6 +3267,10 @@ async function teacherLogin() {
     showTeacherTab('takeAttendance');
     toastSuccess(`স্বাগতম, ${data.teacher_name}`);
     setTimeout(() => loadActivePinBanner(), 500);
+    getCourseInfoMap();
+    loadScheduledClassBanner();
+    if (scheduledBannerInterval) clearInterval(scheduledBannerInterval);
+    scheduledBannerInterval = setInterval(loadScheduledClassBanner, 60000);
   } finally { hideGlobalLoader(); }
 }
 
@@ -2725,7 +3296,8 @@ async function showTeacherTab(tab) {
       return;
     }
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    await getCourseInfoMap();
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white bangla-text">📝 হাজিরা নিন</h3>
@@ -2754,7 +3326,8 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'manualEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    await getCourseInfoMap();
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
@@ -2781,7 +3354,8 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'markEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
+    await getCourseInfoMap();
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">কোর্স নেই</option>';
     el.innerHTML = `
       <div class="space-y-4">
         <h3 class="text-lg font-bold dark:text-white bangla-text">📊 নম্বর এন্ট্রি</h3>
@@ -2803,7 +3377,8 @@ async function showTeacherTab(tab) {
   }
   else if (tab === 'attendanceReport') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
-    const courseOpts = '<option value="">সব কোর্স</option>' + (dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${c.course_code} — ${c.session} · ${c.year}</option>`).join('') || '');
+    await getCourseInfoMap();
+    const courseOpts = '<option value="">সব কোর্স</option>' + (dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '');
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4">
@@ -2828,6 +3403,7 @@ async function showTeacherTab(tab) {
   else if (tab === 'myCourses') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id).order('session', { ascending: false });
     if (!myCourses || !myCourses.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8 bangla-text">কোনো কোর্স নেই</p>'; return; }
+    await getCourseInfoMap();
     const details = await Promise.all(myCourses.map(async c => {
       const { data: info } = await db.from('courses').select('course_name').eq('session', c.session).eq('year', c.year).eq('course_code', c.course_code).maybeSingle();
       const { count } = await db.from('attendance_sessions').select('id', { count: 'exact', head: true }).eq('teacher_id', currentTeacher.id).eq('course_code', c.course_code).eq('session', c.session).eq('year', c.year);
@@ -2838,7 +3414,7 @@ async function showTeacherTab(tab) {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         ${details.map(c => `
           <div class="bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-900/30 dark:to-blue-900/30 p-4 rounded-xl border-2 border-cyan-200 dark:border-cyan-700">
-            <p class="font-bold text-gray-800 dark:text-white bangla-text">${c.course_name ? escapeHtml(c.course_name) + '-' : ''}<span class="num-display">${escapeHtml(c.course_code)}</span></p>
+            <p class="font-bold text-gray-800 dark:text-white bangla-text"><span class="num-display">${escapeHtml(courseLabel(c.course_code, c.course_name))}</span></p>
             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 bangla-text">📅 <span class="num-display">${escapeHtml(c.session)}</span> · <span class="num-display">${escapeHtml(c.year)}</span></p>
             <p class="text-xs text-cyan-700 dark:text-cyan-300 mt-2 bangla-text">📊 <span class="num-display">${c.sessionCount}</span> টি ক্লাস</p>
           </div>`).join('')}
@@ -2847,6 +3423,7 @@ async function showTeacherTab(tab) {
   else if (tab === 'myRoutine') {
     el.innerHTML = '<p class="text-center text-gray-500 py-8 bangla-text">⏳ লোড হচ্ছে...</p>';
     const { data: rawRoutines, error } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id).not('class_day', 'is', null).not('time_slot', 'is', null);
+    await getCourseInfoMap();
     const routines = (rawRoutines || []).map(r => ({ ...r, day_name: r.class_day, year_name: r.year }));
     if (error) { el.innerHTML = `<p class="text-red-500 text-center py-8 bangla-text">❌ ${escapeHtml(error.message)}</p>`; return; }
     if (!routines || !routines.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8 bangla-text">আপনার জন্য কোনো রুটিন নেই</p>'; return; }
@@ -2862,7 +3439,7 @@ async function showTeacherTab(tab) {
             ${routines.filter(r => r.day_name === d).sort((a, b) => routineTimeRank(a.time_slot) - routineTimeRank(b.time_slot)).map(r => `
               <div class="flex justify-between items-center text-sm py-1 border-t border-gray-200 dark:border-gray-600 dark:text-gray-200">
                 <span class="num-display">${escapeHtml(r.time_slot)}</span>
-                <span class="bangla-text"><span class="num-display">${escapeHtml(r.course_code)}</span> · ${escapeHtml(r.year_name || '')}${r.room_no ? ` · রুম <span class="num-display">${escapeHtml(r.room_no)}</span>` : ''}</span>
+                <span class="bangla-text"><span class="num-display">${escapeHtml(courseLabel(r.course_code))}</span> · ${escapeHtml(r.year_name || '')}${r.room_no ? ` · রুম <span class="num-display">${escapeHtml(r.room_no)}</span>` : ''}</span>
               </div>`).join('')}
           </div>`).join('')}
       </div>`;
@@ -3031,6 +3608,97 @@ async function openBulkPresent() {
 // ============================================================
 // PIN Persist
 // ============================================================
+// ============================================================
+// SMART PIN BANNER — বাংলাদেশ সময় (UTC+6) অনুযায়ী আজকের ক্লাস
+// ============================================================
+let scheduledBannerInterval = null;
+const BD_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function getBangladeshNow() {
+  const d = new Date(Date.now() + 6 * 3600 * 1000);   // UTC+6 (ডিভাইসের টাইমজোন যাই হোক)
+  return {
+    day: BD_DAY_NAMES[d.getUTCDay()],
+    minutes: d.getUTCHours() * 60 + d.getUTCMinutes(),
+    dateStr: d.toISOString().slice(0, 10)
+  };
+}
+
+// "9.45-10.30" → 585 (মিনিট)। ১–৭ টা হলে বিকেল ধরা হবে (যেমন 2.00 → 14:00)
+function parseSlotStartMinutes(slot) {
+  const m = String(slot || '').match(/^\s*(\d{1,2})[.:](\d{2})/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const mi = parseInt(m[2], 10);
+  if (h < 8) h += 12;
+  return h * 60 + mi;
+}
+
+async function loadScheduledClassBanner() {
+  const c = document.getElementById('scheduledClassBannerContainer');
+  if (!c) return;
+  if (!currentTeacher) { c.innerHTML = ''; return; }
+
+  const bd = getBangladeshNow();
+  const { data, error } = await db.from('teacher_courses').select('*')
+    .eq('teacher_id', currentTeacher.id).eq('class_day', bd.day).not('time_slot', 'is', null);
+  if (error || !data) return;   // নেটওয়ার্ক সমস্যায় আগের অবস্থা অপরিবর্তিত
+
+  // ক্লাসের (সময় − ১০ মিনিট) থেকে (সময় + ৩০ মিনিট) এর মধ্যে
+  const due = data.filter(r => {
+    const st = parseSlotStartMinutes(r.time_slot);
+    return st !== null && bd.minutes >= st - 10 && bd.minutes <= st + 30;
+  });
+  if (!due.length) { c.innerHTML = ''; return; }
+
+  // যে কোর্সের PIN ইতিমধ্যে চালু আছে, তার ব্যানার দেখানোর দরকার নেই
+  const { data: act } = await db.from('attendance_sessions').select('course_code, session, year')
+    .eq('teacher_id', currentTeacher.id).eq('is_active', true).gte('expires_at', new Date().toISOString());
+  const pending = due.filter(r => !(act || []).some(a => a.course_code === r.course_code && a.session === r.session && a.year === r.year));
+  if (!pending.length) { c.innerHTML = ''; return; }
+
+  await getCourseInfoMap();
+  c.innerHTML = pending.map(r => {
+    const info = courseInfo(r.course_code);
+    const name = info.name || info.short || r.course_code;
+    return `
+      <div class="mb-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white p-5 rounded-2xl shadow-xl border-4 border-amber-300 fade-in">
+        <p class="text-xs font-bold tracking-wider opacity-90 mb-1">⏰ CLASS TIME</p>
+        <p class="text-xl md:text-2xl font-bold leading-snug">
+          Your scheduled class: ${escapeHtml(name)} (<span class="num-display">${escapeHtml(r.course_code)}</span>), ${escapeHtml(r.session)}, ${escapeHtml(r.year)}, <span class="num-display">${escapeHtml(r.time_slot)}</span>. Generate PIN now.
+        </p>
+        <button data-code="${attrEsc(r.course_code)}" data-session="${attrEsc(r.session)}" data-year="${attrEsc(r.year)}"
+          onclick="generateScheduledPin(this)"
+          class="mt-4 w-full bg-white text-orange-700 text-xl font-bold py-4 rounded-2xl btn-pop shadow-lg">
+          🎲 Generate PIN
+        </button>
+      </div>`;
+  }).join('');
+}
+
+async function generateScheduledPin(btn) {
+  if (!currentTeacher || !btn) return;
+  const course_code = btn.dataset.code, session = btn.dataset.session, year = btn.dataset.year;
+  btn.disabled = true;
+  showGlobalLoader();
+  try {
+    const { data, error } = await db.rpc('teacher_create_session', {
+      p_teacher_id: currentTeacher.id, p_session: session, p_year: year,
+      p_course_code: course_code, p_date: getBangladeshNow().dateStr
+    });
+    if (error || !data || !data.ok) {
+      btn.disabled = false;
+      return toastError((data && data.message) || 'PIN তৈরি ব্যর্থ');
+    }
+    toastSuccess('PIN তৈরি হয়েছে');
+    await showTeacherTab('takeAttendance');   // চালু PIN দেখাবে
+    loadActivePinBanner();
+    loadScheduledClassBanner();
+  } catch (e) {
+    btn.disabled = false;
+    toastError(e.message || 'PIN তৈরি ব্যর্থ');
+  } finally { hideGlobalLoader(); }
+}
+
 async function loadActivePinBanner() {
   if (!currentTeacher) return;
   const c = document.getElementById('activePinBannerContainer');
@@ -3042,12 +3710,13 @@ async function loadActivePinBanner() {
     return;
   }
   const s = data[0];
+  await getCourseInfoMap();
   c.innerHTML = `
     <div id="activePinBanner" class="mb-4 bg-gradient-to-r from-emerald-500 to-emerald-600 dark:from-emerald-700 dark:to-emerald-800 text-white p-4 rounded-2xl shadow-lg">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
           <p class="text-xs opacity-90 bangla-text">🟢 চলমান ক্লাস</p>
-          <p class="font-bold text-lg bangla-text"><span class="num-display">${escapeHtml(s.course_code)}</span> — PIN: <span class="font-mono text-2xl tracking-wider num-display">${escapeHtml(s.pin)}</span></p>
+          <p class="font-bold text-lg bangla-text"><span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> — PIN: <span class="font-mono text-2xl tracking-wider num-display">${escapeHtml(s.pin)}</span></p>
           <p class="text-xs opacity-90 mt-1 bangla-text">📅 <span class="num-display">${escapeHtml(s.date)}</span> · ⏰ <span id="bannerTimer" class="num-display">...</span></p>
         </div>
         <button onclick="closeActivePinFromBanner('${escapeHtml(s.id)}')" class="bg-white text-red-600 px-4 py-2 rounded-xl font-bold btn-pop text-sm bangla-text">🔒 PIN বন্ধ</button>
@@ -3155,7 +3824,8 @@ async function closePin(sessionId) {
 async function loadLiveSessions() {
   const { data } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('is_active', true).gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false });
   const sel = document.getElementById('liveSessionSelect');
-  sel.innerHTML = data?.map(s => `<option value="${s.id}">${escapeHtml(s.course_code)} — ${escapeHtml(s.date)} — PIN ${escapeHtml(s.pin)}</option>`).join('') || '<option>কোনো সেশন নেই</option>';
+  await getCourseInfoMap();
+  sel.innerHTML = data?.map(s => `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — PIN ${escapeHtml(s.pin)}</option>`).join('') || '<option>কোনো সেশন নেই</option>';
   if (data && data.length) {
     sel.onchange = () => subscribeLive(sel.value);
     subscribeLive(data[0].id);
@@ -3237,6 +3907,7 @@ async function loadTeacherAttendanceReport() {
   const area = document.getElementById('teacherAttendanceReportArea');
   if (!fromDate || !toDate) { area.innerHTML = '<p class="text-red-500 text-center py-4 bangla-text">দুই তারিখ দিন</p>'; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300 bangla-text">⏳...</p>';
+  await getCourseInfoMap();
   let fs = null, fy = null, fc = null;
   if (cv) [fc, fs, fy] = cv.split('|');
   let q = db.from('attendance_sessions').select('id, course_code, date, session, year, pin').eq('teacher_id', currentTeacher.id).gte('date', fromDate).lte('date', toDate).order('date', { ascending: false });
@@ -3281,7 +3952,7 @@ async function loadTeacherAttendanceReport() {
       ${rows.map(({ session: s, records }) => `
         <details class="bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl" open>
           <summary class="cursor-pointer p-3 font-bold dark:text-white bangla-text">
-            📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(s.course_code)}</span> · PIN <span class="num-display">${escapeHtml(s.pin)}</span>
+            📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · PIN <span class="num-display">${escapeHtml(s.pin)}</span>
           </summary>
           <div class="p-3 pt-0">
             ${records.length === 0 ? '<p class="text-gray-400 text-sm bangla-text">কেউ হাজিরা দেয়নি</p>' : `
@@ -3351,7 +4022,7 @@ async function exportTeacherAttendanceExcel() {
     records.forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
       data.push([
-        session.date, session.course_code, session.pin,
+        session.date, courseLabel(session.course_code), session.pin,
         r.students?.class_roll || '', r.students?.reg_no || '',
         r.students?.name || '', r.status,
         dt ? dt.toLocaleTimeString('en-GB') : '',
@@ -3379,7 +4050,7 @@ async function exportTeacherAttendancePDF() {
   rows.forEach(({ session, records }) => {
     if (records.length === 0) return;
     doc.setFontSize(11);
-    doc.text(`${session.date} - ${session.course_code} (PIN: ${session.pin})`, 14, sY);
+    doc.text(`${session.date} - ${courseLabel(session.course_code)} (PIN: ${session.pin})`, 14, sY);
     doc.autoTable({
       head: [['Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']],
       body: sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', ...r })))
@@ -3948,7 +4619,7 @@ function renderTrackingResult({ type, title, records, summary, flags }) {
                 ${escapeHtml(r.students?.name || '-')}
                 <span class="text-xs text-gray-500 num-display">(${escapeHtml(r.students?.class_roll || '-')})</span>
               </td>
-              <td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.course_code || '-')}</td>
+              <td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.course_code ? courseLabel(r.attendance_sessions.course_code) : '-')}</td>
               <td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.pin || '-')}</td>
               <td class="p-2 border dark:border-gray-600 text-center"><span class="device-badge">${shortDevice(r.device_id)}</span></td>
               <td class="p-2 border dark:border-gray-600 text-center">${stIcons[r.status] || r.status}</td>
@@ -4054,38 +4725,112 @@ async function studentLogin() {
 
 async function loadStudentData() {
   const student = currentStudent;
+
+  await getCourseInfoMap();
+  // হাজিরার হিসাব
   const { data: mySessions } = await db.from('attendance_sessions').select('id, course_code, date').eq('session', student.session).eq('year', student.year);
   const total = mySessions?.length || 0;
   const { data: records } = await db.from('attendance_records').select('status, session_id, attendance_sessions(course_code, date)').eq('student_id', student.id);
   const att = records?.filter(r => r.status === 'present' || r.status === 'late').length || 0;
   const pct = total > 0 ? ((att / total) * 100).toFixed(1) : 0;
   const pC = pct >= 70 ? 'emerald' : pct >= 50 ? 'amber' : 'red';
+
+  // নোটিশ
   const { data: notices } = await db.from('notices').select('*').or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`).order('created_at', { ascending: false }).limit(5);
+
+  // রুটিন ডাটা (ছাত্রের সেশন ও ইয়ার অনুযায়ী)
+  const { data: rawRoutines } = await db.from('teacher_courses')
+    .select('*, teachers(name)')
+    .eq('session', student.session)
+    .eq('year', student.year)
+    .not('class_day', 'is', null)
+    .not('time_slot', 'is', null);
+
+  const courseMap = {};
+  const courseCodes = [...new Set((rawRoutines || []).map(m => m.course_code))];
+  if (courseCodes.length) {
+    const { data: courses } = await db.from('courses').select('course_code, session, year, course_name').in('course_code', courseCodes);
+    courses?.forEach(c => { courseMap[`${c.session}|${c.year}|${c.course_code}`] = c.course_name; });
+  }
+
+  await getCourseInfoMap();
+  const routines = (rawRoutines || []).map(r => ({
+    ...r,
+    course_name: courseMap[`${r.session}|${r.year}|${r.course_code}`] || '',
+    teacher_name: r.teachers?.name || 'Unknown'
+  }));
+
+  const weekOrder = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4 };
+  routines.sort((a, b) => {
+    if (weekOrder[a.class_day] !== weekOrder[b.class_day]) return weekOrder[a.class_day] - weekOrder[b.class_day];
+    return routineTimeRank(a.time_slot) - routineTimeRank(b.time_slot);
+  });
+
+  const bnDay = { Sunday: 'রবিবার', Monday: 'সোমবার', Tuesday: 'মঙ্গলবার', Wednesday: 'বুধবার', Thursday: 'বৃহস্পতিবার' };
+  const groupedRoutines = {};
+  routines.forEach(p => {
+    if (!groupedRoutines[p.class_day]) groupedRoutines[p.class_day] = [];
+    groupedRoutines[p.class_day].push(p);
+  });
+
   document.getElementById('studentContent').innerHTML = `
-    <div class="bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl p-5 mb-4 text-center">
+    <div class="bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl p-5 mb-6 text-center">
       <p class="text-gray-500 dark:text-gray-400 text-sm bangla-text">${escapeHtml(student.name)}</p>
       <p class="text-xs text-gray-400 dark:text-gray-500 bangla-text">${escapeHtml(student.session)} · ${escapeHtml(student.year)} · রোল <span class="num-display">${escapeHtml(student.class_roll)}</span></p>
     </div>
-    <div class="bg-${pC}-50 dark:bg-${pC}-900/30 rounded-2xl p-6 mb-4 text-center">
-      <p class="text-5xl font-bold text-${pC}-600 dark:text-${pC}-300 num-display">${pct}%</p>
-      <p class="text-gray-500 dark:text-gray-400 bangla-text">উপস্থিতির হার</p>
-      <p class="text-xs text-gray-400 dark:text-gray-500 mt-2 bangla-text"><span class="num-display">${att}</span> / <span class="num-display">${total}</span></p>
+
+    <!-- হাজিরার সারাংশ -->
+    <div class="bg-${pC}-50 dark:bg-${pC}-900/30 rounded-2xl p-6 mb-6 text-center shadow-sm">
+      <p class="text-5xl font-bold text-${pC}-600 dark:text-${pC}-300 num-display mb-1">${pct}%</p>
+      <p class="text-gray-600 dark:text-gray-400 font-bold bangla-text">উপস্থিতির হার</p>
+      <p class="text-xs text-gray-500 dark:text-gray-500 mt-2 bangla-text"><span class="num-display">${att}</span> / <span class="num-display">${total}</span> টি ক্লাস</p>
     </div>
-    <h3 class="font-bold mb-2 dark:text-white bangla-text">📋 হাজিরার ইতিহাস</h3>
-    <div class="space-y-1 mb-6 max-h-60 overflow-y-auto">
+
+    <!-- আমার ক্লাস রুটিন -->
+    <h3 class="font-bold text-lg mb-3 dark:text-white bangla-text flex items-center gap-2"><span>📅</span> আমার ক্লাস রুটিন</h3>
+    ${routines.length ? `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+        ${Object.entries(groupedRoutines).map(([d, items]) => `
+          <div class="bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
+            <div class="bg-indigo-100 dark:bg-indigo-900/50 px-4 py-2 border-b border-indigo-200 dark:border-indigo-700">
+              <h4 class="font-bold text-indigo-800 dark:text-indigo-200 bangla-text">${bnDay[d] || escapeHtml(d)}</h4>
+            </div>
+            <div class="divide-y divide-gray-100 dark:divide-gray-700">
+              ${items.map(r => `
+                <div class="p-3">
+                  <div class="flex justify-between items-start gap-2">
+                    <div>
+                      <span class="bg-indigo-50 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-bold num-display">${escapeHtml(r.time_slot)}</span>
+                      <span class="font-bold text-sm dark:text-white bangla-text ml-1">${escapeHtml(courseLabel(r.course_code, r.course_name))}</span>
+                    </div>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 bangla-text">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '<p class="text-gray-400 text-sm mb-8 bangla-text bg-gray-50 dark:bg-gray-800 p-4 rounded-xl text-center">এই ইয়ারের জন্য কোনো রুটিন পাওয়া যায়নি</p>'}
+
+    <!-- হাজিরার ইতিহাস -->
+    <h3 class="font-bold text-lg mb-3 dark:text-white bangla-text flex items-center gap-2"><span>📋</span> হাজিরার ইতিহাস</h3>
+    <div class="space-y-1 mb-8 max-h-60 overflow-y-auto">
       ${records?.length ? records.map(r => {
         const ic = { present: '✅', absent: '❌', late: '⏰', excused: '📝' };
-        return `<div class="bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-xl flex justify-between text-sm dark:text-white">
-          <span class="bangla-text">${ic[r.status] || '✅'} <span class="num-display">${escapeHtml(r.attendance_sessions?.course_code || '-')}</span></span>
+        return `<div class="bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-xl flex justify-between text-sm dark:text-white">
+          <span class="bangla-text">${ic[r.status] || '✅'} <span class="num-display">${escapeHtml(r.attendance_sessions?.course_code ? courseLabel(r.attendance_sessions.course_code) : '-')}</span></span>
           <span class="text-gray-500 dark:text-gray-400 num-display">${escapeHtml(r.attendance_sessions?.date || '')}</span>
         </div>`;
       }).join('') : '<p class="text-gray-400 text-sm bangla-text">কোনো রেকর্ড নেই</p>'}
     </div>
-    <h3 class="font-bold mb-2 dark:text-white bangla-text">📢 নোটিশ</h3>
+
+    <!-- নোটিশ -->
+    <h3 class="font-bold text-lg mb-3 dark:text-white bangla-text flex items-center gap-2"><span>📢</span> নোটিশ বোর্ড</h3>
     ${notices?.map(n => `
-      <div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/30 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/30'} p-3 rounded-xl mb-2">
-        <b class="dark:text-white bangla-text">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
-        <p class="text-sm text-gray-600 dark:text-gray-300 bangla-text">${escapeHtml(n.content)}</p>
+      <div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-4 rounded-r-xl mb-2 shadow-sm">
+        <b class="dark:text-white bangla-text text-base">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b>
+        <p class="text-sm text-gray-600 dark:text-gray-300 bangla-text mt-1">${escapeHtml(n.content)}</p>
       </div>`).join('') || '<p class="text-gray-400 text-sm bangla-text">কোনো নোটিশ নেই</p>'}
   `;
 }
@@ -4097,6 +4842,7 @@ async function loadStudentData() {
   updateThemeIcon();
   updateOnlineStatus();
   setInterval(updateOnlineStatus, 30000);
+  loadPublicNotices();
   const { data: { session } } = await db.auth.getSession();
   if (session) {
     const { data: t } = await db.from('teachers').select('is_admin').eq('auth_user_id', session.user.id).maybeSingle();
