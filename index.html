@@ -710,11 +710,8 @@ async function fetchTeacherDirectoryData(retries = 2) {
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      // শুধু প্রয়োজনীয় কলাম — যাতে PIN সংক্রান্ত কোনো তথ্য পাবলিকলি না আসে
-      const res = await withTimeout(
-        db.from('teachers').select('id, name, designation, biography, mobile, is_active, subject').order('name'),
-        12000
-      );
+      // লগইন ছাড়াই সবাই দেখতে পাবে: ডাটাবেস ফাংশন শুধু পাবলিক কলাম ফেরত দেয় (PIN/ইমেইল/ইউজার আইডি নয়)
+      const res = await withTimeout(db.rpc('get_teacher_directory'), 12000);
       if (res.error) throw res.error;
       return res.data || [];
     } catch (err) {
