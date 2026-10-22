@@ -216,6 +216,35 @@
   .today-item.mine { border-color:#6366f1; background:#eef2ff; }
   html.dark .today-item.mine { background:#312e81; }
   @media (max-width: 640px) { .today-slot { flex-direction:column; gap:6px; } .slot-time { display:flex; gap:8px; align-items:center; } }
+
+  /* v4: readable header + teacher directory */
+  nav.sticky { background: linear-gradient(135deg, rgba(67,56,202,.98), rgba(109,40,217,.98)) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  html.dark nav.sticky { background: rgba(17,24,39,.98) !important; }
+  .clamp3 { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .tcard { background:#fff; border-radius:24px; overflow:hidden; border:1px solid #e5e7eb; box-shadow:0 8px 28px rgba(30,27,75,.10); display:flex; flex-direction:column; transition:transform .2s, box-shadow .2s; }
+  .tcard:hover { transform:translateY(-3px); box-shadow:0 16px 36px rgba(30,27,75,.18); }
+  html.dark .tcard { background:#1f2937; border-color:#374151; }
+  .tcard-head { display:flex; gap:14px; align-items:center; padding:18px; color:#fff; }
+  .tcard-avatar { width:58px; height:58px; border-radius:18px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:20px; background:rgba(255,255,255,.22); border:2px solid rgba(255,255,255,.55); }
+  .tcard-name { font-weight:800; font-size:18px; line-height:1.25; word-break:break-word; }
+  .tcard-desig { font-size:13px; font-weight:600; opacity:.92; margin-top:2px; }
+  .tcard-body { padding:16px 18px 18px; display:flex; flex-direction:column; gap:12px; flex:1; }
+  .tcard-row { display:flex; align-items:center; gap:10px; font-size:14px; color:#374151; text-decoration:none; word-break:break-all; }
+  html.dark .tcard-row { color:#d1d5db; }
+  .tcard-row .ico { width:30px; height:30px; border-radius:10px; background:#eef2ff; display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0; }
+  html.dark .tcard-row .ico { background:#312e81; }
+  .tcard-bio { font-size:13px; line-height:1.55; color:#6b7280; border-top:1px dashed #e5e7eb; padding-top:12px; }
+  html.dark .tcard-bio { color:#9ca3af; border-color:#374151; }
+  .tcard-more { background:none; border:0; color:#4f46e5; font-size:12px; font-weight:700; cursor:pointer; padding:4px 0 0; }
+  .tcard-empty { font-size:12px; color:#9ca3af; text-align:center; padding:10px 0; }
+  .tcard-actions { display:grid; gap:8px; margin-top:auto; }
+  .tbtn { display:flex; align-items:center; justify-content:center; gap:6px; padding:11px 6px; border-radius:14px; font-weight:700; font-size:13px; color:#fff; text-decoration:none; transition:transform .12s, opacity .12s; }
+  .tbtn:active { transform:scale(.96); }
+  .tbtn-call { background:linear-gradient(135deg,#3b82f6,#0891b2); }
+  .tbtn-wa { background:linear-gradient(135deg,#25d366,#128c7e); }
+  .tbtn-mail { background:linear-gradient(135deg,#6366f1,#8b5cf6); }
+  .tchip { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+  .tchip-bcs { background:#fef3c7; color:#92400e; } .tchip-sub { background:#d1fae5; color:#065f46; }
 </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 min-h-screen pb-20 dark:from-indigo-950 dark:via-purple-950 dark:to-pink-900">
@@ -298,7 +327,7 @@
         <h2 class="text-2xl font-extrabold text-gray-800 dark:text-white">👨‍🏫 Faculty Directory</h2>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Department of Economics · AMC</p>
       </div>
-      <input id="dirSearch" placeholder="Search by name or subject..." class="w-full sm:w-72 border-2 rounded-xl p-2.5 dark:bg-gray-700 dark:text-white dark:border-gray-600 text-sm" oninput="loadTeacherDirectory()">
+      <input id="dirSearch" placeholder="Search name, designation, BCS batch..." class="w-full sm:w-72 border-2 rounded-xl p-2.5 dark:bg-gray-700 dark:text-white dark:border-gray-600 text-sm" oninput="loadTeacherDirectory()">
     </div>
     <div id="directoryList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
   </div>
@@ -920,7 +949,7 @@ function renderRoutineCards(routines, options = {}) {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/70 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-bold num-display whitespace-nowrap">${escapeHtml(r.time_slot)}</span>
-                  <span class="font-bold text-sm dark:text-white break-words">${escapeHtml(courseLabel(r.course_code, r.course_name))}</span>
+                  <span class="font-bold text-sm dark:text-white break-words">${escapeHtml(courseLabel(r.course_code, r.course_name))}</span>${r.room ? `<span class="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300 px-2 py-0.5 rounded text-xs font-bold whitespace-nowrap">🚪 ${escapeHtml(r.room)}</span>` : ''}
                 </div>
                 ${showTeacher ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>` : ''}
               </div>
@@ -1003,16 +1032,16 @@ function buildRoutineFilterInfo({ day, year, session, teacherId }) {
 
 async function exportRoutineExcel() {
   if (!currentRoutineData || !currentRoutineData.length) return toastWarning('Load routine first');
-  const data = [['Day', 'Time', 'Course Code', 'Course Name', 'Teacher', 'Session', 'Year']];
+  const data = [['Day', 'Time', 'Room', 'Course Code', 'Course Name', 'Teacher', 'Session', 'Year']];
   currentRoutineData.forEach(r => {
     data.push([
-      r.class_day, r.time_slot, r.course_code,
+      r.class_day, r.time_slot, r.room || '', r.course_code,
       r.course_name || '', r.teacher_name || '',
       r.session, r.year
     ]);
   });
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 32 }, { wch: 26 }, { wch: 12 }, { wch: 16 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 32 }, { wch: 26 }, { wch: 12 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Routine');
   XLSX.writeFile(wb, `ClassRoutine_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -1023,7 +1052,7 @@ async function exportRoutinePDF() {
   if (!currentRoutineData || !currentRoutineData.length) return toastWarning('Load routine first');
   const w = window.open('', '_blank');
   if (!w) return toastWarning('Allow pop-ups, then tap PDF again');
-  const rows = currentRoutineData.map(r => `<tr><td>${escapeHtml(r.class_day)}</td><td>${escapeHtml(r.time_slot)}</td><td>${escapeHtml(r.course_code)}</td><td>${escapeHtml(r.course_name || '-')}</td><td>${escapeHtml(r.teacher_name || '-')}</td><td>${escapeHtml(r.session)}</td><td>${escapeHtml(r.year)}</td></tr>`).join('');
+  const rows = currentRoutineData.map(r => `<tr><td>${escapeHtml(r.class_day)}</td><td>${escapeHtml(r.time_slot)}</td><td>${escapeHtml(r.room || '-')}</td><td>${escapeHtml(r.course_code)}</td><td>${escapeHtml(r.course_name || '-')}</td><td>${escapeHtml(r.teacher_name || '-')}</td><td>${escapeHtml(r.session)}</td><td>${escapeHtml(r.year)}</td></tr>`).join('');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Class Routine</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
 <style>@page{size:A4 landscape;margin:12mm}body{font-family:'Hind Siliguri','Segoe UI',Arial,sans-serif;color:#1f2937}
@@ -1032,7 +1061,7 @@ async function exportRoutinePDF() {
 th{background:#4f46e5;color:#fff;text-align:left;padding:7px}td{padding:6px 7px;border-bottom:1px solid #e5e7eb}tr:nth-child(even) td{background:#f5f3ff}</style></head>
 <body><div class="h"><b>AMC Economics</b><span>Class Routine</span></div>
 <div class="m"><span>Filter: ${escapeHtml(currentRoutineContext?.filterInfo || 'All classes')}</span><span>Generated: ${escapeHtml(new Date().toLocaleString('en-GB'))}</span></div>
-<table><thead><tr><th>Day</th><th>Time</th><th>Code</th><th>Course</th><th>Teacher</th><th>Session</th><th>Year</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+<table><thead><tr><th>Day</th><th>Time</th><th>Room</th><th>Code</th><th>Course</th><th>Teacher</th><th>Session</th><th>Year</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
   w.document.close();
   setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 700);
   toastInfo('Choose “Save as PDF” in the print dialog');
@@ -1134,14 +1163,23 @@ function getInitials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function waNumber(m) {
+  let d = banglaToEnglish(m || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('880')) return d;
+  if (d.startsWith('0')) return '88' + d;
+  return d.length === 10 ? '880' + d : d;
+}
+
 function renderTeacherDirectory() {
   const el = document.getElementById('directoryList');
   if (!el) return;
-  const search = (document.getElementById('dirSearch')?.value || '').trim().toLowerCase();
+  const search = banglaToEnglish(document.getElementById('dirSearch')?.value || '').trim().toLowerCase();
   const list = (teacherDirCache || []).filter(t => {
     if (!isTeacherActive(t)) return false;
     if (!search) return true;
-    return (t.name || '').toLowerCase().includes(search) || (t.subject || '').toLowerCase().includes(search);
+    return [t.name, t.designation, t.subject, t.bcs_batch, t.mobile, t.whatsapp, t.email].join(' ').toLowerCase().includes(search);
   });
 
   if (!list.length) {
@@ -1151,40 +1189,32 @@ function renderTeacherDirectory() {
 
   el.innerHTML = list.map(t => {
     const grad = getTeacherGradient(t.name);
-    const initials = getInitials(t.name);
+    const wa = waNumber(t.whatsapp || t.mobile);
+    const bcs = t.bcs_batch ? (/bcs/i.test(t.bcs_batch) ? t.bcs_batch : 'BCS ' + t.bcs_batch) : '';
+    const bio = (t.biography || '').trim();
+    const actions = [
+      t.mobile ? `<a href="tel:${attrEsc(t.mobile)}" class="tbtn tbtn-call">📞 Call</a>` : '',
+      wa ? `<a href="https://wa.me/${attrEsc(wa)}" target="_blank" rel="noopener" class="tbtn tbtn-wa">💬 WhatsApp</a>` : '',
+      t.email ? `<a href="mailto:${attrEsc(t.email)}" class="tbtn tbtn-mail">✉️ Email</a>` : ''
+    ].filter(Boolean);
+    const hasInfo = t.mobile || t.whatsapp || t.email || bio;
     return `
-    <div class="teacher-card fade-in">
-      <div class="h-2 bg-gradient-to-r ${grad}"></div>
-      <div class="p-5">
-        <div class="flex items-start gap-3 mb-3">
-          <div class="w-14 h-14 rounded-2xl bg-gradient-to-br ${grad} flex items-center justify-center text-white text-lg font-extrabold shadow-md flex-shrink-0">
-            ${initials}
-          </div>
-          <div class="flex-1 min-w-0">
-            <h3 class="font-extrabold text-lg text-gray-900 dark:text-white truncate leading-tight">${escapeHtml(t.name)}</h3>
-            ${t.designation ? `<p class="text-sm text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">${escapeHtml(t.designation)}</p>` : ''}
-            ${t.bcs_batch ? `<span class="inline-block mt-1 text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">BCS ${escapeHtml(t.bcs_batch)}</span>` : ''}
-          </div>
+    <div class="tcard fade-in">
+      <div class="tcard-head bg-gradient-to-br ${grad}">
+        <div class="tcard-avatar">${escapeHtml(getInitials(t.name))}</div>
+        <div class="min-w-0">
+          <h3 class="tcard-name">${escapeHtml(t.name)}</h3>
+          <p class="tcard-desig">${escapeHtml(t.designation || 'Faculty Member')}</p>
         </div>
-
-        ${t.subject ? `<div class="mb-3"><span class="inline-block bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 px-3 py-1 rounded-lg text-xs font-bold">📚 ${escapeHtml(t.subject)}</span></div>` : ''}
-
-        <div class="space-y-1.5 text-sm mb-3">
-          ${t.mobile ? `<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300"><span class="text-base flex-shrink-0">📞</span><a href="tel:${attrEsc(t.mobile)}" class="font-mono hover:text-indigo-600 dark:hover:text-indigo-400">${escapeHtml(t.mobile)}</a></div>` : ''}
-          ${t.email ? `<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300"><span class="text-base flex-shrink-0">✉️</span><a href="mailto:${attrEsc(t.email)}" class="truncate text-sm hover:text-indigo-600 dark:hover:text-indigo-400">${escapeHtml(t.email)}</a></div>` : ''}
-          ${t.id_no ? `<div class="flex items-center gap-2 text-gray-600 dark:text-gray-400 text-xs"><span class="text-base flex-shrink-0">🆔</span><span class="font-mono">ID: ${escapeHtml(t.id_no)}</span></div>` : ''}
-        </div>
-
-        ${t.biography ? `
-          <div class="pt-3 border-t border-gray-100 dark:border-gray-700 mb-3">
-            <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-4">${escapeHtml(t.biography)}</p>
-          </div>
-        ` : ''}
-
-        <div class="flex gap-2">
-          ${t.mobile ? `<a href="tel:${attrEsc(t.mobile)}" class="flex-1 bg-gradient-to-r ${grad} hover:opacity-90 text-white text-center py-2.5 rounded-xl text-sm font-bold btn-pop shadow-sm">📞 Call</a>` : ''}
-          ${t.email ? `<a href="mailto:${attrEsc(t.email)}" class="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 text-center py-2.5 rounded-xl text-sm font-bold btn-pop">✉️ Email</a>` : ''}
-        </div>
+      </div>
+      <div class="tcard-body">
+        ${(bcs || t.subject) ? `<div>${bcs ? `<span class="tchip tchip-bcs">🏅 ${escapeHtml(bcs)}</span> ` : ''}${t.subject ? `<span class="tchip tchip-sub">📚 ${escapeHtml(t.subject)}</span>` : ''}</div>` : ''}
+        ${t.mobile ? `<a href="tel:${attrEsc(t.mobile)}" class="tcard-row"><span class="ico">📞</span><span class="num-display">${escapeHtml(t.mobile)}</span></a>` : ''}
+        ${(t.whatsapp && waNumber(t.whatsapp) !== waNumber(t.mobile)) ? `<a href="https://wa.me/${attrEsc(waNumber(t.whatsapp))}" target="_blank" rel="noopener" class="tcard-row"><span class="ico" style="background:#dcfce7">💬</span><span class="num-display">${escapeHtml(t.whatsapp)}</span></a>` : ''}
+        ${t.email ? `<a href="mailto:${attrEsc(t.email)}" class="tcard-row"><span class="ico">✉️</span><span>${escapeHtml(t.email)}</span></a>` : ''}
+        ${bio ? `<div><p class="tcard-bio ${bio.length > 140 ? 'clamp3' : ''}">${escapeHtml(bio)}</p>${bio.length > 140 ? `<button class="tcard-more" onclick="const p=this.previousElementSibling;p.classList.toggle('clamp3');this.textContent=p.classList.contains('clamp3')?'Read more ▾':'Show less ▴'">Read more ▾</button>` : ''}</div>` : ''}
+        ${hasInfo ? '' : '<p class="tcard-empty">Profile details not added yet</p>'}
+        ${actions.length ? `<div class="tcard-actions" style="grid-template-columns:repeat(${actions.length},1fr)">${actions.join('')}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1848,9 +1878,11 @@ async function showAdminTab(tab) {
 
   if (tab === 'manageTeacher') {
     el.innerHTML = '<div class="text-center py-8 text-gray-500">⏳ Loading...</div>';
-    const { data, error } = await db.from('teachers')
-      .select('id, name, name_code, designation, bcs_batch, mobile, email, id_no, user_id, biography, is_active, is_admin, subject')
-      .order('name');
+    const tCols = 'id, name, name_code, designation, bcs_batch, mobile, email, id_no, user_id, biography, is_active, is_admin, subject';
+    let tRes = await db.from('teachers').select(tCols + ', whatsapp').order('name');
+    if (tRes.error && /whatsapp/i.test(tRes.error.message || '')) { teacherWaCol = false; tRes = await db.from('teachers').select(tCols).order('name'); }
+    else if (!tRes.error) teacherWaCol = true;
+    const { data, error } = tRes;
     if (currentAdminTab !== 'manageTeacher') return;
     if (error) { el.innerHTML = `<p class="text-red-500 text-center py-8">❌ ${escapeHtml(error.message)}</p>`; return; }
     allTeachers = data || [];
@@ -1954,6 +1986,10 @@ async function showAdminTab(tab) {
             <select id="mapTime" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
               <option value="">Time</option>${ROUTINE_TIME_ORDER.map(t => `<option>${t}</option>`).join('')}
             </select>
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs font-bold mb-1 dark:text-white">Room No. <span class="font-normal text-gray-400">(optional, e.g. ECO-1, 101)</span></label>
+            <input id="mapRoom" maxlength="20" placeholder="Room number" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600 uppercase">
           </div>
         </div>
         <button onclick="saveMapping()" class="bg-cyan-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full mt-2">Save</button>
@@ -2312,20 +2348,21 @@ async function addAcademicCourse() {
 // MAPPING
 // ============================================================
 function slotChips(slots) {
-  return sortRoutineData(slots || []).map(x => `<span class="chip chip-slot num-display">${escapeHtml(x.class_day.slice(0, 3))} · ${escapeHtml(x.time_slot)}</span>`).join('');
+  return sortRoutineData(slots || []).map(x => `<span class="chip chip-slot num-display">${escapeHtml(x.class_day.slice(0, 3))} · ${escapeHtml(x.time_slot)}${x.room ? ' · 🚪 ' + escapeHtml(x.room) : ''}</span>`).join('');
 }
 function normKey(v) { return String(v ?? '').trim().toLowerCase(); }
 
-async function checkScheduleConflict({ teacherId, courseCode, session, year, day, time, excludeId }) {
+async function checkScheduleConflict({ teacherId, courseCode, session, year, day, time, room, excludeId }) {
   const { data, error } = await db.from('teacher_courses').select('*').eq('class_day', day).eq('time_slot', time);
   if (error) throw error;
   const rows = (data || []).filter(r => !excludeId || String(r.id) !== String(excludeId));
   const tRow = rows.find(r => String(r.teacher_id) === String(teacherId));
   const cRow = rows.find(r => normKey(r.course_code) === normKey(courseCode) && normKey(r.session) === normKey(session) && normKey(r.year) === normKey(year));
-  if (!tRow && !cRow) return [];
+  const rRow = room ? rows.find(r => r.room && normKey(r.room) === normKey(room)) : null;
+  if (!tRow && !cRow && !rRow) return [];
 
   await getCourseInfoMap();
-  const ids = [...new Set([tRow, cRow].filter(Boolean).map(r => r.teacher_id).filter(Boolean))];
+  const ids = [...new Set([tRow, cRow, rRow].filter(Boolean).map(r => r.teacher_id).filter(Boolean))];
   const nameOf = {};
   if (ids.length) {
     const { data: ts } = await db.from('teachers').select('id, name').in('id', ids);
@@ -2334,6 +2371,7 @@ async function checkScheduleConflict({ teacherId, courseCode, session, year, day
   const out = [];
   if (tRow) out.push(`👨‍🏫 This teacher is already booked at this time: <b>${escapeHtml(courseLabel(tRow.course_code))}</b>.`);
   if (cRow) out.push(`📚 Course <b>${escapeHtml(courseLabel(cRow.course_code))}</b> is already assigned at this time (${escapeHtml(nameOf[cRow.teacher_id] || 'unknown teacher')}).`);
+  if (rRow) out.push(`🚪 Room <b>${escapeHtml(rRow.room)}</b> is already used at this time by <b>${escapeHtml(courseLabel(rRow.course_code))}</b> (${escapeHtml(nameOf[rRow.teacher_id] || 'unknown teacher')}).`);
   return out;
 }
 
@@ -2352,6 +2390,19 @@ async function loadTeachersDropdown() {
   if (mapSel) mapSel.innerHTML = '<option value="">Select teacher</option>' + opts;
 }
 
+function isRoomColumnError(e) {
+  const m = String((e && e.message) || '');
+  return /room/i.test(m) && /(column|schema cache)/i.test(m);
+}
+
+function showRoomDbNotice() {
+  return Swal.fire({
+    icon: 'info', title: 'Room column missing',
+    html: '<div style="text-align:left;font-size:14px">Run <b>run_this.sql</b> once in the Supabase SQL Editor to add the Room field, then save again.</div>',
+    confirmButtonText: 'OK', confirmButtonColor: '#4f46e5'
+  });
+}
+
 async function sameCourseRows({ teacher_id, session, year, course_code }) {
   const { data, error } = await db.from('teacher_courses').select('id, class_day, time_slot')
     .eq('teacher_id', teacher_id).eq('session', session).eq('year', year).eq('course_code', course_code);
@@ -2362,7 +2413,7 @@ async function sameCourseRows({ teacher_id, session, year, course_code }) {
 function showMultiDayDbNotice() {
   return Swal.fire({
     icon: 'info', title: 'Database rule needs a one-time update',
-    html: '<div style="text-align:left;font-size:14px">The database still allows only one row per teacher + course. Run <b>multi_day_mapping.sql</b> once in the Supabase SQL Editor, then save again.</div>',
+    html: '<div style="text-align:left;font-size:14px">The database still allows only one row per teacher + course. Run <b>run_this.sql</b> once in the Supabase SQL Editor, then save again.</div>',
     confirmButtonText: 'OK', confirmButtonColor: '#4f46e5'
   });
 }
@@ -2375,6 +2426,8 @@ async function saveMapping() {
   const course_name = document.getElementById('mapCourseName').value.trim();
   const class_day = document.getElementById('mapDay').value;
   const time_slot = document.getElementById('mapTime').value;
+  const room = (document.getElementById('mapRoom')?.value || '').trim().toUpperCase();
+  if (room && !ROOM_RE.test(room)) return toastWarning('Room: letters, numbers, space, - or / only (e.g. ECO-1, 101)');
   if (!teacher_id || !session || !year || !course_code) return toastWarning('Enter teacher, session, year, course');
   if (!!class_day !== !!time_slot) return toastWarning('Select both day and time (or leave both empty)');
 
@@ -2382,7 +2435,7 @@ async function saveMapping() {
   try {
     if (class_day) {
       let conflicts;
-      try { conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: course_code, session, year, day: class_day, time: time_slot }); }
+      try { conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: course_code, session, year, day: class_day, time: time_slot, room }); }
       catch (e) { return toastError('Conflict check failed: ' + (e.message || 'network issue')); }
       if (conflicts.length) { hideGlobalLoader(); return showConflictAlert(conflicts, class_day, time_slot); }
     }
@@ -2392,12 +2445,14 @@ async function saveMapping() {
 
     const blank = class_day ? rows.find(r => !r.class_day) : null;
     if (blank) {
-      const { error } = await db.from('teacher_courses').update({ class_day, time_slot }).eq('id', blank.id);
-      if (error) return toastError(error.message);
+      const { error } = await db.from('teacher_courses').update({ class_day, time_slot, ...(room ? { room } : {}) }).eq('id', blank.id);
+      if (error) { if (isRoomColumnError(error)) { hideGlobalLoader(); return showRoomDbNotice(); } return toastError(error.message); }
       toastSuccess('Day & time added to the existing mapping');
     } else {
-      const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code, class_day: class_day || null, time_slot: time_slot || null });
+      const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code, class_day: class_day || null, time_slot: time_slot || null, ...(room ? { room } : {}) });
       if (e1) {
+        if (isRoomColumnError(e1)) { hideGlobalLoader(); return showRoomDbNotice(); }
+        if (/teacher_courses_slot_/.test(e1.message || '')) { return toastWarning('Teacher, course or room is already booked at this day & time'); }
         if (e1.code === '23505' || /duplicate/i.test(e1.message || '')) { hideGlobalLoader(); return showMultiDayDbNotice(); }
         return toastError(e1.message);
       }
@@ -2406,6 +2461,7 @@ async function saveMapping() {
     const { error: e2 } = await db.from('courses').upsert({ session, year, course_code, course_name: course_name || null }, { onConflict: 'session,year,course_code' });
     if (e2) console.error(e2);
     document.getElementById('mapCourseSelect').value = '';
+    const rmEl = document.getElementById('mapRoom'); if (rmEl) rmEl.value = '';
     fillCourseDetails();
     loadMappings();
   } finally { hideGlobalLoader(); }
@@ -2448,7 +2504,7 @@ function renderMappings() {
       ${items.map(m => `<div class="map-row">
         <div class="min-w-0 flex-1 dark:text-white">
           <b class="num-display text-sm break-words">${escapeHtml(label(m))}</b>
-          <div>${m.class_day !== 'ZZ' && m.time_slot ? `<span class="chip chip-day">${escapeHtml(m.class_day)}</span><span class="chip chip-slot num-display">${escapeHtml(m.time_slot)}</span>` : '<span class="chip chip-none">No schedule</span>'}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span></div>
+          <div>${m.class_day !== 'ZZ' && m.time_slot ? `<span class="chip chip-day">${escapeHtml(m.class_day)}</span><span class="chip chip-slot num-display">${escapeHtml(m.time_slot)}</span>${m.room ? `<span class="chip chip-day">🚪 ${escapeHtml(m.room)}</span>` : ''}` : '<span class="chip chip-none">No schedule</span>'}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span></div>
         </div>
         <div class="flex gap-1.5 shrink-0">
           <button onclick="editMapping('${escapeHtml(m.id)}')" class="bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white px-2.5 py-1.5 rounded-lg text-xs btn-pop" title="Edit">✏️</button>
@@ -2473,23 +2529,29 @@ async function editMapping(id) {
     html: `<div style="text-align:left"><p style="font-size:13px;color:#6b7280;margin-bottom:10px"><b>${escapeHtml(courseLabel(m.course_code, mappingNames[`${m.session}|${m.year}|${m.course_code}`]))}</b> · ${escapeHtml(m.session)} · ${escapeHtml(m.year)}</p>
       <label style="font-size:12px;font-weight:700">Teacher</label><select id="emTeacher" style="${st}">${tOpts}</select>
       <label style="font-size:12px;font-weight:700">Day</label><select id="emDay" style="${st}">${dOpts}</select>
-      <label style="font-size:12px;font-weight:700">Time</label><select id="emTime" style="${st}">${tmOpts}</select></div>`,
+      <label style="font-size:12px;font-weight:700">Time</label><select id="emTime" style="${st}">${tmOpts}</select>
+      <label style="font-size:12px;font-weight:700">Room No.</label><input id="emRoom" value="${attrEsc(m.room || '')}" maxlength="20" placeholder="e.g. ECO-1, 101" style="${st};text-transform:uppercase"></div>`,
     showCancelButton: true, confirmButtonText: 'Save', confirmButtonColor: '#4f46e5',
-    preConfirm: () => ({ teacher_id: document.getElementById('emTeacher').value, class_day: document.getElementById('emDay').value, time_slot: document.getElementById('emTime').value })
+    preConfirm: () => ({ teacher_id: document.getElementById('emTeacher').value, class_day: document.getElementById('emDay').value, time_slot: document.getElementById('emTime').value, room: document.getElementById('emRoom').value.trim().toUpperCase() })
   });
   if (!r.isConfirmed) return;
-  const { teacher_id, class_day, time_slot } = r.value;
+  const { teacher_id, class_day, time_slot, room } = r.value;
+  if (room && !ROOM_RE.test(room)) return toastWarning('Room: letters, numbers, space, - or / only (e.g. ECO-1, 101)');
   if (!!class_day !== !!time_slot) return toastWarning('Select both day and time (or clear both)');
   showGlobalLoader();
   try {
     if (class_day) {
-      const conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: m.course_code, session: m.session, year: m.year, day: class_day, time: time_slot, excludeId: m.id });
+      const conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: m.course_code, session: m.session, year: m.year, day: class_day, time: time_slot, room, excludeId: m.id });
       if (conflicts.length) { hideGlobalLoader(); return showConflictAlert(conflicts, class_day, time_slot); }
       const rows = (await sameCourseRows({ teacher_id, session: m.session, year: m.year, course_code: m.course_code })).filter(x => String(x.id) !== String(m.id));
       if (rows.some(x => x.class_day === class_day)) return toastWarning(`This course already has a class on ${class_day}`);
     }
-    const { error } = await db.from('teacher_courses').update({ teacher_id, class_day: class_day || null, time_slot: time_slot || null }).eq('id', m.id);
+    const upd = { teacher_id, class_day: class_day || null, time_slot: time_slot || null };
+    if ('room' in m || room) upd.room = room || null;
+    const { error } = await db.from('teacher_courses').update(upd).eq('id', m.id);
     if (error) {
+      if (isRoomColumnError(error)) { hideGlobalLoader(); return showRoomDbNotice(); }
+      if (/teacher_courses_slot_/.test(error.message || '')) { return toastWarning('Teacher, course or room is already booked at this day & time'); }
       if (error.code === '23505') { hideGlobalLoader(); return showMultiDayDbNotice(); }
       return toastError(error.message);
     }
@@ -2543,6 +2605,7 @@ function showTeacherForm(id = '') {
       <input id="tfDesignation" value="${escapeHtml(t.designation || '')}" placeholder="Designation" class="${inp}">
       <input id="tfBCS" value="${escapeHtml(t.bcs_batch || '')}" placeholder="BCS batch" class="${inp}">
       <input id="tfMobile" value="${escapeHtml(t.mobile || '')}" placeholder="Mobile number" class="${inp} num-display">
+      <input id="tfWhatsapp" value="${escapeHtml(t.whatsapp || '')}" placeholder="WhatsApp number (leave empty to use mobile)" class="${inp} num-display">
       <input id="tfEmail" value="${escapeHtml(t.email || '')}" placeholder="Email" class="${inp}">
       <input id="tfIdNo" value="${escapeHtml(t.id_no || '')}" placeholder="ID No" class="${inp}">
       <input id="tfSubject" value="${escapeHtml(t.subject || '')}" placeholder="Subject (e.g., Economics)" class="${inp}">
@@ -2568,6 +2631,7 @@ async function saveTeacher(id) {
     bcs_batch: val('tfBCS') || null,
     mobile: banglaToEnglish(val('tfMobile')) || null,
     email: val('tfEmail') || null,
+    ...((teacherWaCol || val('tfWhatsapp')) ? { whatsapp: banglaToEnglish(val('tfWhatsapp')) || null } : {}),
     id_no: val('tfIdNo') || null,
     user_id: val('tfUserId').toLowerCase() || null,
     biography: val('tfBiography') || null
@@ -2633,6 +2697,7 @@ function viewTeacherProfile(id) {
       <p><b>Designation:</b> ${escapeHtml(t.designation || '-')}</p>
       <p><b>BCS Batch:</b> ${escapeHtml(t.bcs_batch || '-')}</p>
       <p><b>Mobile:</b> <span class="num-display">${escapeHtml(t.mobile || '-')}</span></p>
+      <p><b>WhatsApp:</b> <span class="num-display">${escapeHtml(t.whatsapp || '-')}</span></p>
       <p><b>Email:</b> ${escapeHtml(t.email || '-')}</p>
       <p><b>ID:</b> ${escapeHtml(t.id_no || '-')}</p>
       <p><b>User ID:</b> ${escapeHtml(t.user_id || '-')}</p>
@@ -3430,7 +3495,7 @@ async function showTeacherTab(tab) {
     myCourses.forEach(c => {
       const k = `${c.course_code}|${c.session}|${c.year}`;
       if (!grp[k]) grp[k] = { ...c, slots: [] };
-      if (c.class_day && c.time_slot) grp[k].slots.push({ class_day: c.class_day, time_slot: c.time_slot });
+      if (c.class_day && c.time_slot) grp[k].slots.push({ class_day: c.class_day, time_slot: c.time_slot, room: c.room });
     });
     const details = await Promise.all(Object.values(grp).map(async c => {
       const { data: info } = await db.from('courses').select('course_name').eq('session', c.session).eq('year', c.year).eq('course_code', c.course_code).maybeSingle();
@@ -4298,6 +4363,8 @@ if ('serviceWorker' in navigator) {
 // ============================================================
 let teacherRoutineView = 'mine';
 let todayRoutineCache = null;
+let teacherWaCol = false;
+const ROOM_RE = /^[A-Za-z0-9][A-Za-z0-9 \/-]{0,19}$/;
 let todayOnlyMine = false;
 let todayYear = '';
 
@@ -4391,7 +4458,7 @@ function renderTodayRoutine(force) {
       <div class="flex-1 min-w-0">${slots[slot].map(r => `<div class="today-item ${isMine(r) ? 'mine' : ''}">
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <b class="text-sm dark:text-white break-words">${escapeHtml(courseLabel(r.course_code, r.course_name))}</b>
-          <span class="flex gap-1 items-center">${isMine(r) ? '<span class="chip bg-indigo-600 text-white">You</span>' : ''}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(r.session)} · ${escapeHtml(r.year)}</span></span>
+          <span class="flex gap-1 items-center">${r.room ? `<span class="chip chip-day">🚪 ${escapeHtml(r.room)}</span>` : ''}${isMine(r) ? '<span class="chip bg-indigo-600 text-white">You</span>' : ''}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(r.session)} · ${escapeHtml(r.year)}</span></span>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>
       </div>`).join('')}</div>
