@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>AMC Economics — Attendance System</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#4F46E5">
@@ -22,7 +22,9 @@
   })();
 </script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap');
+  .hidden { display: none; }
+  .teacher-bottom-nav.hidden { display: none; }
   * { font-family: 'Inter', 'Hind Siliguri', sans-serif; }
 
   input[type="number"], input[type="tel"], input.mark-input,
@@ -152,6 +154,68 @@
   /* network banner */
   #networkBanner { display: none; }
   #networkBanner.active { display: flex; }
+
+  /* ===== v3 design layer ===== */
+  body { background-attachment: fixed; -webkit-tap-highlight-color: transparent; }
+  body::before { content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background: radial-gradient(520px 320px at 12% 8%, rgba(255,255,255,.16), transparent 70%), radial-gradient(480px 360px at 92% 78%, rgba(244,114,182,.22), transparent 70%); }
+  nav.sticky, section, .teacher-bottom-nav { position: relative; z-index: 1; }
+  nav.sticky { position: sticky; z-index: 40; padding-top: env(safe-area-inset-top, 0px); }
+  .brand-chip { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px;
+    background: linear-gradient(135deg,#fff,#e0e7ff); box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+  section > div.bg-white, section > div.dark\:bg-gray-800 { border: 1px solid rgba(255,255,255,.55); box-shadow: 0 20px 50px -12px rgba(30,27,75,.35); }
+  html.dark section > div.bg-white, html.dark section > div.dark\:bg-gray-800 { border-color: rgba(255,255,255,.07); }
+  input, select, textarea { transition: border-color .15s, box-shadow .15s, background .15s; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #6366f1 !important; box-shadow: 0 0 0 4px rgba(99,102,241,.18); }
+  .tab-strip { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:1.25rem; }
+  .tab-pill { padding:9px 16px; border-radius:999px; font-weight:600; font-size:13px; white-space:nowrap; cursor:pointer;
+    background:#eef2ff; color:#4338ca; border:1px solid #c7d2fe; transition: all .15s; }
+  .tab-pill:hover { background:#e0e7ff; transform: translateY(-1px); }
+  .tab-pill:active { transform: scale(.96); }
+  .tab-pill.active { background: linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff; border-color:transparent; box-shadow:0 6px 16px rgba(79,70,229,.35); }
+  html.dark .tab-pill { background:#312e81; color:#c7d2fe; border-color:#4338ca; }
+  html.dark .tab-pill.active { background: linear-gradient(135deg,#6366f1,#a855f7); color:#fff; }
+  .step-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:22px; text-align:left; }
+  .step { background:#f5f3ff; border-radius:16px; padding:12px; font-size:12px; color:#4b5563; line-height:1.35; }
+  .step b { display:flex; width:24px; height:24px; border-radius:999px; align-items:center; justify-content:center; background:#4f46e5; color:#fff; font-size:12px; margin-bottom:6px; }
+  html.dark .step { background:#312e81; color:#c7d2fe; }
+  .pin-box { box-shadow: inset 0 -3px 0 rgba(79,70,229,.12); }
+  .map-group { margin-bottom:14px; }
+  .map-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; margin-bottom:6px;
+    background:#f8fafc; border:1px solid #e2e8f0; }
+  html.dark .map-row { background:#1f2937; border-color:#374151; }
+  .chip { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; margin:2px 4px 0 0; }
+  .chip-day { background:#e0e7ff; color:#3730a3; } .chip-none { background:#fef3c7; color:#92400e; }
+  .chip-slot { background:#cffafe; color:#155e75; }
+  #networkBanner { position: relative !important; }
+  @media (max-width: 768px) {
+    #offlineBadge { bottom: 84px; left: 12px; right: 12px; text-align: center; }
+    .tab-strip.scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .tab-strip.scroll::-webkit-scrollbar { display:none; }
+    .teacher-tabs-desktop.mobile-open .tab-pill { border-radius: 14px; text-align:left; }
+    .step-row { grid-template-columns: 1fr; }
+  }
+
+  .seg { display:inline-flex; padding:4px; gap:4px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; margin-bottom:14px; }
+  html.dark .seg { background:#312e81; border-color:#4338ca; }
+  .seg-btn { padding:8px 16px; border-radius:999px; font-size:13px; font-weight:700; color:#4338ca; background:transparent; border:0; cursor:pointer; transition:all .15s; }
+  html.dark .seg-btn { color:#c7d2fe; }
+  .seg-btn.active { background:linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff; box-shadow:0 4px 12px rgba(79,70,229,.35); }
+  .today-slot { display:flex; gap:12px; border-left:5px solid #cbd5e1; background:#f8fafc; border-radius:14px; padding:12px; margin-bottom:10px; }
+  html.dark .today-slot { background:#1f2937; }
+  .today-slot.ongoing { border-left-color:#10b981; background:#ecfdf5; box-shadow:0 0 0 2px rgba(16,185,129,.25); }
+  html.dark .today-slot.ongoing { background:#064e3b; }
+  .today-slot.upcoming { border-left-color:#6366f1; }
+  .today-slot.done { opacity:.6; }
+  .slot-time { min-width:92px; font-weight:800; font-size:13px; color:#312e81; }
+  html.dark .slot-time { color:#e0e7ff; }
+  .slot-status { display:block; font-size:10px; font-weight:700; margin-top:3px; color:#64748b; }
+  .today-slot.ongoing .slot-status { color:#059669; animation:pulse 1.8s infinite; }
+  .today-item { padding:8px 10px; border-radius:10px; background:#fff; border:1px solid #e5e7eb; margin-bottom:6px; }
+  html.dark .today-item { background:#111827; border-color:#374151; }
+  .today-item.mine { border-color:#6366f1; background:#eef2ff; }
+  html.dark .today-item.mine { background:#312e81; }
+  @media (max-width: 640px) { .today-slot { flex-direction:column; gap:6px; } .slot-time { display:flex; gap:8px; align-items:center; } }
 </style>
 </head>
 <body class="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 min-h-screen pb-20 dark:from-indigo-950 dark:via-purple-950 dark:to-pink-900">
@@ -159,7 +223,7 @@
 <div id="globalLoader"><div class="spinner"></div></div>
 <div id="offlineBadge"></div>
 
-<div id="networkBanner" class="fixed top-14 left-0 right-0 z-30 bg-orange-500 text-white px-4 py-2 text-center text-sm font-bold items-center justify-center gap-2 shadow-lg">
+<div id="networkBanner" class="relative z-30 bg-orange-500 text-white px-4 py-2 text-center text-sm font-bold items-center justify-center gap-2 shadow-lg">
   <span>🐌 Slow network detected — attendance will be optimized</span>
 </div>
 
@@ -173,7 +237,7 @@
 
 <nav class="bg-white/10 dark:bg-black/30 backdrop-blur-md shadow-lg sticky top-0 z-40">
   <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
-    <h1 class="text-white font-extrabold text-lg tracking-tight">🎓 AMC Economics</h1>
+    <div class="flex items-center gap-3"><div class="brand-chip">🎓</div><div class="leading-tight"><h1 class="text-white font-extrabold text-lg tracking-tight">AMC Economics</h1><p class="text-white/70 text-[11px] font-semibold tracking-wide">Attendance System</p></div></div>
     <div class="flex gap-2 text-sm items-center flex-wrap justify-end">
       
       <button id="installBtn" onclick="installPWA()" class="hidden bg-emerald-500 text-white px-3 py-2 rounded-lg btn-pop text-sm animate-pulse font-bold">
@@ -222,6 +286,7 @@
     <p id="pinErrorMsg" class="hidden text-red-600 text-sm font-semibold mb-3"></p>
     <p class="text-xs text-gray-400 dark:text-gray-500 mt-2">Auto-submits when 4th digit is entered</p>
     <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">💡 Multiple students can mark attendance from the same device</p>
+    <div class="step-row"><div class="step"><b>1</b>Get the 4-digit PIN from your teacher</div><div class="step"><b>2</b>Enter it above — it submits automatically</div><div class="step"><b>3</b>Find your name and confirm attendance</div></div>
   </div>
 </section>
 
@@ -298,15 +363,15 @@
     
     <div id="adminDashboardStats" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
 
-    <div class="flex gap-2 mb-6 flex-wrap text-sm">
-      <button onclick="showAdminTab('manageTeacher')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Teachers</button>
-      <button onclick="showAdminTab('academicSetup')" class="bg-teal-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Academic</button>
-      <button onclick="showAdminTab('manageStudent')" class="bg-emerald-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Students</button>
-      <button onclick="showAdminTab('mapCourse')" class="bg-cyan-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Mapping</button>
-      <button onclick="showAdminTab('routine')" class="bg-purple-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">📅 Routine</button>
-      <button onclick="showAdminTab('reports')" class="bg-amber-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Reports</button>
-      <button onclick="showAdminTab('notice')" class="bg-pink-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Notices</button>
-      <button onclick="showAdminTab('backup')" class="bg-violet-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">💾 Backup</button>
+    <div id="adminTabs" class="tab-strip scroll">
+      <button onclick="showAdminTab('manageTeacher')" class="tab-pill">Teachers</button>
+      <button onclick="showAdminTab('academicSetup')" class="tab-pill">Academic</button>
+      <button onclick="showAdminTab('manageStudent')" class="tab-pill">Students</button>
+      <button onclick="showAdminTab('mapCourse')" class="tab-pill">Mapping</button>
+      <button onclick="showAdminTab('routine')" class="tab-pill">📅 Routine</button>
+      <button onclick="showAdminTab('reports')" class="tab-pill">Reports</button>
+      <button onclick="showAdminTab('notice')" class="tab-pill">Notices</button>
+      <button onclick="showAdminTab('backup')" class="tab-pill">💾 Backup</button>
     </div>
     <div id="adminContent"></div>
   </div>
@@ -325,15 +390,15 @@
     <div id="scheduledClassBannerContainer"></div>
     <div id="activePinBannerContainer"></div>
     
-    <div class="flex gap-2 mb-6 flex-wrap text-sm teacher-tabs-desktop" id="teacherTabsDesktop">
-      <button onclick="showTeacherTab('takeAttendance'); setActiveBottomNav('takeAttendance')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Take Attendance</button>
-      <button onclick="showTeacherTab('liveReport'); setActiveBottomNav('liveReport')" class="bg-red-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Live Report</button>
-      <button onclick="showTeacherTab('manualEntry'); setActiveBottomNav('manualEntry')" class="bg-amber-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Manual Entry</button>
-      <button onclick="showTeacherTab('markEntry'); setActiveBottomNav('markEntry')" class="bg-purple-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">Marks Entry</button>
-      <button onclick="showTeacherTab('attendanceReport'); setActiveBottomNav('attendanceReport')" class="bg-teal-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">📊 Reports</button>
-      <button onclick="showTeacherTab('myCourses'); setActiveBottomNav('myCourses')" class="bg-cyan-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">📚 My Courses</button>
-      <button onclick="showTeacherTab('myRoutine'); setActiveBottomNav('myRoutine')" class="bg-lime-600 text-white px-4 py-2 rounded-lg btn-pop font-semibold">📅 My Routine</button>
-      <button onclick="showTeacherTab('tracking'); setActiveBottomNav('tracking')" class="bg-orange-500 text-white px-4 py-2 rounded-lg btn-pop font-semibold">🔍 Tracking</button>
+    <div class="tab-strip teacher-tabs-desktop" id="teacherTabsDesktop">
+      <button onclick="showTeacherTab('takeAttendance'); setActiveBottomNav('takeAttendance')" class="tab-pill">Take Attendance</button>
+      <button onclick="showTeacherTab('liveReport'); setActiveBottomNav('liveReport')" class="tab-pill">Live Report</button>
+      <button onclick="showTeacherTab('manualEntry'); setActiveBottomNav('manualEntry')" class="tab-pill">Manual Entry</button>
+      <button onclick="showTeacherTab('markEntry'); setActiveBottomNav('markEntry')" class="tab-pill">Marks Entry</button>
+      <button onclick="showTeacherTab('attendanceReport'); setActiveBottomNav('attendanceReport')" class="tab-pill">📊 Reports</button>
+      <button onclick="showTeacherTab('myCourses'); setActiveBottomNav('myCourses')" class="tab-pill">📚 My Courses</button>
+      <button onclick="showTeacherTab('myRoutine'); setActiveBottomNav('myRoutine')" class="tab-pill">📅 My Routine</button>
+      <button onclick="showTeacherTab('tracking'); setActiveBottomNav('tracking')" class="tab-pill">🔍 Tracking</button>
     </div>
     
     <div id="teacherContent" class="min-h-[50vh]"></div>
@@ -956,51 +1021,21 @@ async function exportRoutineExcel() {
 
 async function exportRoutinePDF() {
   if (!currentRoutineData || !currentRoutineData.length) return toastWarning('Load routine first');
-  showGlobalLoader();
-  try {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'landscape' });
-    await setupBanglaFont(doc);
-
-    doc.setFillColor(147, 51, 234);
-    doc.rect(0, 0, 297, 22, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(16);
-    doc.text('AMC Economics', 14, 12);
-    doc.setFontSize(10);
-    doc.text('Class Routine', 14, 18);
-
-    doc.setTextColor(80, 80, 80);
-    doc.setFontSize(9);
-    const filterInfo = currentRoutineContext?.filterInfo || 'All classes';
-    doc.text(`Filter: ${filterInfo}`, 14, 30);
-    doc.text(`Generated: ${new Date().toLocaleString('en-GB')}`, 240, 30);
-
-    doc.autoTable({
-      head: [['Day', 'Time', 'Course Code', 'Course Name', 'Teacher', 'Session', 'Year']],
-      body: currentRoutineData.map(r => [
-        r.class_day,
-        r.time_slot,
-        r.course_code,
-        r.course_name || '-',
-        r.teacher_name || '-',
-        r.session,
-        r.year
-      ]),
-      startY: 34,
-      styles: { fontSize: 8, font: 'HindSiliguri', cellPadding: 2.5 },
-      headStyles: { fillColor: [147, 51, 234], font: 'HindSiliguri', textColor: 255, fontSize: 9 },
-      alternateRowStyles: { fillColor: [250, 248, 255] },
-      margin: { left: 14, right: 14 }
-    });
-
-    doc.save(`ClassRoutine_${new Date().toISOString().slice(0,10)}.pdf`);
-    toastSuccess('📄 PDF downloaded');
-  } catch (e) {
-    toastError('PDF generation failed: ' + (e.message || ''));
-  } finally {
-    hideGlobalLoader();
-  }
+  const w = window.open('', '_blank');
+  if (!w) return toastWarning('Allow pop-ups, then tap PDF again');
+  const rows = currentRoutineData.map(r => `<tr><td>${escapeHtml(r.class_day)}</td><td>${escapeHtml(r.time_slot)}</td><td>${escapeHtml(r.course_code)}</td><td>${escapeHtml(r.course_name || '-')}</td><td>${escapeHtml(r.teacher_name || '-')}</td><td>${escapeHtml(r.session)}</td><td>${escapeHtml(r.year)}</td></tr>`).join('');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Class Routine</title>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
+<style>@page{size:A4 landscape;margin:12mm}body{font-family:'Hind Siliguri','Segoe UI',Arial,sans-serif;color:#1f2937}
+.h{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:14px 18px;border-radius:10px}.h b{font-size:20px}.h span{opacity:.85;font-size:13px;margin-left:10px}
+.m{margin:10px 0;font-size:12px;color:#4b5563;display:flex;justify-content:space-between}table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:#4f46e5;color:#fff;text-align:left;padding:7px}td{padding:6px 7px;border-bottom:1px solid #e5e7eb}tr:nth-child(even) td{background:#f5f3ff}</style></head>
+<body><div class="h"><b>AMC Economics</b><span>Class Routine</span></div>
+<div class="m"><span>Filter: ${escapeHtml(currentRoutineContext?.filterInfo || 'All classes')}</span><span>Generated: ${escapeHtml(new Date().toLocaleString('en-GB'))}</span></div>
+<table><thead><tr><th>Day</th><th>Time</th><th>Code</th><th>Course</th><th>Teacher</th><th>Session</th><th>Year</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+  w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 700);
+  toastInfo('Choose “Save as PDF” in the print dialog');
 }
 
 // ============================================================
@@ -1277,7 +1312,7 @@ function setupPinBoxes() {
   const fresh = document.querySelectorAll('.pin-box');
   fresh.forEach((box, idx) => {
     box.addEventListener('input', (e) => {
-      const val = e.target.value.replace(/\D/g, '');
+      const val = banglaToEnglish(e.target.value).replace(/\D/g, '');
       if (val.length > 1) {
         // Multiple digits (paste)
         for (let i = 0; i < val.length && idx + i < fresh.length; i++) {
@@ -1321,7 +1356,7 @@ function setupPinBoxes() {
 
     box.addEventListener('paste', (e) => {
       e.preventDefault();
-      const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 4);
+      const pasted = (e.clipboardData || window.clipboardData).getData('text') && banglaToEnglish((e.clipboardData || window.clipboardData).getData('text')).replace(/\D/g, '').slice(0, 4);
       for (let i = 0; i < pasted.length && idx + i < fresh.length; i++) {
         fresh[idx + i].value = pasted[i];
         fresh[idx + i].classList.add('filled');
@@ -1336,6 +1371,7 @@ function setupPinBoxes() {
 function showPinError(msg) {
   const boxes = document.querySelectorAll('.pin-box');
   const errEl = document.getElementById('pinErrorMsg');
+  disablePinBoxes(false);
   boxes.forEach(b => {
     b.classList.remove('filled', 'success');
     b.classList.add('error');
@@ -1457,7 +1493,7 @@ async function submitPin() {
 
 async function verifyPinBackground(pin) {
   try {
-    const { data: sessions } = await db.from('attendance_sessions')
+    const { data: sessions, error: vErr } = await db.from('attendance_sessions')
       .select('id, pin, course_code, session, year, date, teacher_id, expires_at, is_active')
       .eq('pin', pin).eq('is_active', true)
       .gte('expires_at', new Date().toISOString())
@@ -1465,6 +1501,11 @@ async function verifyPinBackground(pin) {
     if (sessions && sessions.length) {
       currentPinSession = sessions[0];
       localStorage.setItem('amc_last_session_' + pin, JSON.stringify(currentPinSession));
+    } else if (!vErr) {
+      localStorage.removeItem('amc_last_session_' + pin);
+      currentPinSession = null;
+      document.getElementById('attendanceModal').classList.add('hidden');
+      toastWarning('This PIN has been closed or expired');
     }
   } catch (e) {}
 }
@@ -1916,7 +1957,13 @@ async function showAdminTab(tab) {
           </div>
         </div>
         <button onclick="saveMapping()" class="bg-cyan-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full mt-2">Save</button>
-        <div id="mappingList" class="mt-4"></div>
+        </div>
+      <div class="mt-8">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <h4 class="font-bold text-gray-800 dark:text-white">All mappings <span id="mapCount" class="text-xs font-semibold text-gray-400"></span></h4>
+          <input id="mapSearch" oninput="renderMappings()" placeholder="Search teacher, course, day..." class="w-full sm:w-72 border-2 rounded-xl p-2.5 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
+        </div>
+        <div id="mappingList"></div>
       </div>`;
     loadTeachersDropdown();
     loadAcademicCoursesForMap();
@@ -2264,14 +2311,17 @@ async function addAcademicCourse() {
 // ============================================================
 // MAPPING
 // ============================================================
+function slotChips(slots) {
+  return sortRoutineData(slots || []).map(x => `<span class="chip chip-slot num-display">${escapeHtml(x.class_day.slice(0, 3))} · ${escapeHtml(x.time_slot)}</span>`).join('');
+}
 function normKey(v) { return String(v ?? '').trim().toLowerCase(); }
 
-async function checkScheduleConflict({ teacherId, courseCode, day, time }) {
+async function checkScheduleConflict({ teacherId, courseCode, session, year, day, time, excludeId }) {
   const { data, error } = await db.from('teacher_courses').select('*').eq('class_day', day).eq('time_slot', time);
   if (error) throw error;
-  const rows = data || [];
+  const rows = (data || []).filter(r => !excludeId || String(r.id) !== String(excludeId));
   const tRow = rows.find(r => String(r.teacher_id) === String(teacherId));
-  const cRow = rows.find(r => normKey(r.course_code) === normKey(courseCode));
+  const cRow = rows.find(r => normKey(r.course_code) === normKey(courseCode) && normKey(r.session) === normKey(session) && normKey(r.year) === normKey(year));
   if (!tRow && !cRow) return [];
 
   await getCourseInfoMap();
@@ -2302,6 +2352,21 @@ async function loadTeachersDropdown() {
   if (mapSel) mapSel.innerHTML = '<option value="">Select teacher</option>' + opts;
 }
 
+async function sameCourseRows({ teacher_id, session, year, course_code }) {
+  const { data, error } = await db.from('teacher_courses').select('id, class_day, time_slot')
+    .eq('teacher_id', teacher_id).eq('session', session).eq('year', year).eq('course_code', course_code);
+  if (error) throw error;
+  return data || [];
+}
+
+function showMultiDayDbNotice() {
+  return Swal.fire({
+    icon: 'info', title: 'Database rule needs a one-time update',
+    html: '<div style="text-align:left;font-size:14px">The database still allows only one row per teacher + course. Run <b>multi_day_mapping.sql</b> once in the Supabase SQL Editor, then save again.</div>',
+    confirmButtonText: 'OK', confirmButtonColor: '#4f46e5'
+  });
+}
+
 async function saveMapping() {
   const teacher_id = document.getElementById('mapTeacher').value;
   const session = document.getElementById('mapSession').value.trim();
@@ -2311,48 +2376,126 @@ async function saveMapping() {
   const class_day = document.getElementById('mapDay').value;
   const time_slot = document.getElementById('mapTime').value;
   if (!teacher_id || !session || !year || !course_code) return toastWarning('Enter teacher, session, year, course');
-
-  if (class_day && time_slot) {
-    showGlobalLoader();
-    let conflicts;
-    try { conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: course_code, day: class_day, time: time_slot }); }
-    catch (e) { hideGlobalLoader(); return toastError('Conflict check failed: ' + (e.message || 'network issue')); }
-    hideGlobalLoader();
-    if (conflicts.length) return showConflictAlert(conflicts, class_day, time_slot);
-  }
+  if (!!class_day !== !!time_slot) return toastWarning('Select both day and time (or leave both empty)');
 
   showGlobalLoader();
   try {
-    const { error: e1 } = await db.from('teacher_courses').insert({
-      teacher_id, session, year, course_code, class_day: class_day || null, time_slot: time_slot || null
-    });
-    if (e1) { if (e1.message.includes('duplicate')) return toastWarning('This mapping already exists'); return toastError(e1.message); }
+    if (class_day) {
+      let conflicts;
+      try { conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: course_code, session, year, day: class_day, time: time_slot }); }
+      catch (e) { return toastError('Conflict check failed: ' + (e.message || 'network issue')); }
+      if (conflicts.length) { hideGlobalLoader(); return showConflictAlert(conflicts, class_day, time_slot); }
+    }
+    const rows = await sameCourseRows({ teacher_id, session, year, course_code });
+    if (class_day && rows.some(r => r.class_day === class_day)) return toastWarning(`This course already has a class on ${class_day}`);
+    if (!class_day && rows.length) return toastWarning('This mapping already exists');
+
+    const blank = class_day ? rows.find(r => !r.class_day) : null;
+    if (blank) {
+      const { error } = await db.from('teacher_courses').update({ class_day, time_slot }).eq('id', blank.id);
+      if (error) return toastError(error.message);
+      toastSuccess('Day & time added to the existing mapping');
+    } else {
+      const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code, class_day: class_day || null, time_slot: time_slot || null });
+      if (e1) {
+        if (e1.code === '23505' || /duplicate/i.test(e1.message || '')) { hideGlobalLoader(); return showMultiDayDbNotice(); }
+        return toastError(e1.message);
+      }
+      toastSuccess('Mapping & routine saved');
+    }
     const { error: e2 } = await db.from('courses').upsert({ session, year, course_code, course_name: course_name || null }, { onConflict: 'session,year,course_code' });
     if (e2) console.error(e2);
-    toastSuccess('Mapping & routine saved');
     document.getElementById('mapCourseSelect').value = '';
     fillCourseDetails();
     loadMappings();
   } finally { hideGlobalLoader(); }
 }
 
+let mappingCache = [];
+let mappingNames = {};
+
 async function loadMappings() {
-  const { data } = await db.from('teacher_courses').select('*, teachers(name)').order('created_at', { ascending: false }).limit(50);
-  if (!data || !data.length) { document.getElementById('mappingList').innerHTML = '<p class="text-gray-400 text-sm">No mappings</p>'; return; }
+  const box = document.getElementById('mappingList');
+  if (!box) return;
+  box.innerHTML = '<div class="skeleton h-14 mb-2"></div><div class="skeleton h-14 mb-2"></div>';
+  const { data, error } = await db.from('teacher_courses').select('*, teachers(name)').order('created_at', { ascending: false }).limit(500);
+  if (error) { box.innerHTML = `<p class="text-red-500 text-sm">${escapeHtml(error.message)}</p>`; return; }
+  mappingCache = data || [];
+  mappingNames = {};
+  try {
+    const { data: cs } = await db.from('courses').select('session, year, course_code, course_name');
+    (cs || []).forEach(c => { mappingNames[`${c.session}|${c.year}|${c.course_code}`] = c.course_name; });
+  } catch (e) { console.warn(e); }
   await getCourseInfoMap();
-  const h = await Promise.all(data.map(async m => {
-    const { data: c } = await db.from('courses').select('course_name').eq('session', m.session).eq('year', m.year).eq('course_code', m.course_code).maybeSingle();
-    const dn = courseLabel(m.course_code, c?.course_name);
-    const dayTimeStr = (m.class_day && m.time_slot) ? `<span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] ml-1">${escapeHtml(m.class_day)}, ${escapeHtml(m.time_slot)}</span>` : '';
-    return `<div class="bg-cyan-50 dark:bg-cyan-900/30 px-3 py-2 rounded-lg text-sm mb-1 flex justify-between items-center">
-      <div class="dark:text-white flex-1">${escapeHtml(m.teachers?.name)} → <b class="num-display">${escapeHtml(dn)}</b>${dayTimeStr}</div>
-      <div class="flex items-center gap-2 ml-2">
-        <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span>
-        <button onclick="deleteMapping('${escapeHtml(m.id)}')" class="bg-red-100 text-red-600 hover:bg-red-600 hover:text-white px-2 py-1 rounded text-xs transition btn-pop" title="Delete Mapping">🗑️</button>
-      </div>
+  renderMappings();
+}
+
+function renderMappings() {
+  const box = document.getElementById('mappingList');
+  if (!box) return;
+  const q = (document.getElementById('mapSearch')?.value || '').trim().toLowerCase();
+  const label = m => courseLabel(m.course_code, mappingNames[`${m.session}|${m.year}|${m.course_code}`]);
+  const rows = mappingCache.filter(m => !q || [m.teachers?.name, label(m), m.class_day, m.time_slot, m.session, m.year].join(' ').toLowerCase().includes(q));
+  const cnt = document.getElementById('mapCount');
+  if (cnt) cnt.textContent = `(${rows.length})`;
+  if (!rows.length) { box.innerHTML = '<p class="text-gray-400 text-sm py-4 text-center">No mappings</p>'; return; }
+  const groups = {};
+  rows.forEach(m => { const n = m.teachers?.name || 'Unknown'; (groups[n] = groups[n] || []).push(m); });
+  box.innerHTML = Object.keys(groups).sort().map(name => {
+    const items = sortRoutineData(groups[name].map(m => ({ ...m, class_day: m.class_day || 'ZZ' })));
+    return `<div class="map-group">
+      <p class="text-xs font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-300 mb-2">👨‍🏫 ${escapeHtml(name)} <span class="text-gray-400">· ${items.length}</span></p>
+      ${items.map(m => `<div class="map-row">
+        <div class="min-w-0 flex-1 dark:text-white">
+          <b class="num-display text-sm break-words">${escapeHtml(label(m))}</b>
+          <div>${m.class_day !== 'ZZ' && m.time_slot ? `<span class="chip chip-day">${escapeHtml(m.class_day)}</span><span class="chip chip-slot num-display">${escapeHtml(m.time_slot)}</span>` : '<span class="chip chip-none">No schedule</span>'}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span></div>
+        </div>
+        <div class="flex gap-1.5 shrink-0">
+          <button onclick="editMapping('${escapeHtml(m.id)}')" class="bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white px-2.5 py-1.5 rounded-lg text-xs btn-pop" title="Edit">✏️</button>
+          <button onclick="deleteMapping('${escapeHtml(m.id)}')" class="bg-red-100 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-lg text-xs btn-pop" title="Delete">🗑️</button>
+        </div>
+      </div>`).join('')}
     </div>`;
-  }));
-  document.getElementById('mappingList').innerHTML = h.join('');
+  }).join('');
+}
+
+async function editMapping(id) {
+  const m = mappingCache.find(x => String(x.id) === String(id));
+  if (!m) return toastError('Mapping not found — refresh the list');
+  const { data: ts } = await db.from('teachers').select('id, name').order('name');
+  const sel = (v, cur) => (String(v) === String(cur) ? 'selected' : '');
+  const tOpts = (ts || []).map(t => `<option value="${attrEsc(t.id)}" ${sel(t.id, m.teacher_id)}>${escapeHtml(t.name)}</option>`).join('');
+  const dOpts = ['', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'].map(d => `<option value="${d}" ${sel(d, m.class_day || '')}>${d || '— No day —'}</option>`).join('');
+  const tmOpts = ['', ...ROUTINE_TIME_ORDER].map(t => `<option value="${t}" ${sel(t, m.time_slot || '')}>${t || '— No time —'}</option>`).join('');
+  const st = 'width:100%;padding:10px;border:2px solid #e5e7eb;border-radius:12px;margin-bottom:10px;font-size:14px';
+  const r = await Swal.fire({
+    title: 'Edit mapping',
+    html: `<div style="text-align:left"><p style="font-size:13px;color:#6b7280;margin-bottom:10px"><b>${escapeHtml(courseLabel(m.course_code, mappingNames[`${m.session}|${m.year}|${m.course_code}`]))}</b> · ${escapeHtml(m.session)} · ${escapeHtml(m.year)}</p>
+      <label style="font-size:12px;font-weight:700">Teacher</label><select id="emTeacher" style="${st}">${tOpts}</select>
+      <label style="font-size:12px;font-weight:700">Day</label><select id="emDay" style="${st}">${dOpts}</select>
+      <label style="font-size:12px;font-weight:700">Time</label><select id="emTime" style="${st}">${tmOpts}</select></div>`,
+    showCancelButton: true, confirmButtonText: 'Save', confirmButtonColor: '#4f46e5',
+    preConfirm: () => ({ teacher_id: document.getElementById('emTeacher').value, class_day: document.getElementById('emDay').value, time_slot: document.getElementById('emTime').value })
+  });
+  if (!r.isConfirmed) return;
+  const { teacher_id, class_day, time_slot } = r.value;
+  if (!!class_day !== !!time_slot) return toastWarning('Select both day and time (or clear both)');
+  showGlobalLoader();
+  try {
+    if (class_day) {
+      const conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: m.course_code, session: m.session, year: m.year, day: class_day, time: time_slot, excludeId: m.id });
+      if (conflicts.length) { hideGlobalLoader(); return showConflictAlert(conflicts, class_day, time_slot); }
+      const rows = (await sameCourseRows({ teacher_id, session: m.session, year: m.year, course_code: m.course_code })).filter(x => String(x.id) !== String(m.id));
+      if (rows.some(x => x.class_day === class_day)) return toastWarning(`This course already has a class on ${class_day}`);
+    }
+    const { error } = await db.from('teacher_courses').update({ teacher_id, class_day: class_day || null, time_slot: time_slot || null }).eq('id', m.id);
+    if (error) {
+      if (error.code === '23505') { hideGlobalLoader(); return showMultiDayDbNotice(); }
+      return toastError(error.message);
+    }
+    toastSuccess('Mapping updated');
+    loadMappings();
+  } catch (e) { toastError(e.message || 'Update failed'); } finally { hideGlobalLoader(); }
 }
 
 async function deleteMapping(id) {
@@ -3283,7 +3426,13 @@ async function showTeacherTab(tab) {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id).order('session', { ascending: false });
     if (!myCourses || !myCourses.length) { el.innerHTML = '<p class="text-gray-400 text-center py-8">No courses</p>'; return; }
     await getCourseInfoMap();
-    const details = await Promise.all(myCourses.map(async c => {
+    const grp = {};
+    myCourses.forEach(c => {
+      const k = `${c.course_code}|${c.session}|${c.year}`;
+      if (!grp[k]) grp[k] = { ...c, slots: [] };
+      if (c.class_day && c.time_slot) grp[k].slots.push({ class_day: c.class_day, time_slot: c.time_slot });
+    });
+    const details = await Promise.all(Object.values(grp).map(async c => {
       const { data: info } = await db.from('courses').select('course_name').eq('session', c.session).eq('year', c.year).eq('course_code', c.course_code).maybeSingle();
       const { count } = await db.from('attendance_sessions').select('id', { count: 'exact', head: true }).eq('teacher_id', currentTeacher.id).eq('course_code', c.course_code).eq('session', c.session).eq('year', c.year);
       return { ...c, course_name: info?.course_name, sessionCount: count || 0 };
@@ -3296,43 +3445,12 @@ async function showTeacherTab(tab) {
             <p class="font-bold text-gray-800 dark:text-white"><span class="num-display">${escapeHtml(courseLabel(c.course_code, c.course_name))}</span></p>
             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">📅 <span class="num-display">${escapeHtml(c.session)}</span> · <span class="num-display">${escapeHtml(c.year)}</span></p>
             <p class="text-xs text-cyan-700 dark:text-cyan-300 mt-2">📊 <span class="num-display">${c.sessionCount}</span> classes</p>
+            <div class="mt-1">${slotChips(c.slots)}</div>
           </div>`).join('')}
       </div>`;
   }
   else if (tab === 'myRoutine') {
-    el.innerHTML = '<p class="text-center text-gray-500 py-8">⏳ Loading...</p>';
-    try {
-      const raw = await fetchRoutineData({ teacherId: currentTeacher.id });
-      const enriched = await enrichRoutineData(raw);
-      const sorted = sortRoutineData(enriched);
-
-      currentRoutineData = sorted;
-      currentRoutineContext = {
-        view: 'teacher',
-        teacherId: currentTeacher.id,
-        filterInfo: `Teacher: ${currentTeacher.name}`
-      };
-
-      if (!sorted.length) {
-        el.innerHTML = '<div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-8 text-center"><p class="text-4xl mb-2">📭</p><p class="text-gray-500 dark:text-gray-400">No routine assigned</p><p class="text-xs text-gray-400 dark:text-gray-500 mt-2">Admin will set your routine from course mapping</p></div>';
-        return;
-      }
-
-      el.innerHTML = `
-        <div class="flex justify-between items-center flex-wrap gap-2 mb-3">
-          <h3 class="text-lg font-bold dark:text-white">📅 My Class Routine</h3>
-          <div class="flex gap-2">
-            <button onclick="exportRoutineExcel()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold btn-pop">📊 Excel</button>
-            <button onclick="exportRoutinePDF()" class="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-bold btn-pop">📄 PDF</button>
-          </div>
-        </div>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Total <span class="num-display">${sorted.length}</span> classes · auto-synced from admin mapping</p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          ${renderRoutineCards(sorted, { showTeacher: false, showSession: true })}
-        </div>`;
-    } catch (err) {
-      el.innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-red-500 mb-2">❌ ${escapeHtml(err.message)}</p><button onclick="showTeacherTab('myRoutine')" class="bg-lime-600 text-white px-4 py-2 rounded-xl font-bold btn-pop">🔄 Retry</button></div>`;
-    }
+    await loadTeacherRoutineView('mine');
   }
   else if (tab === 'tracking') {
     el.innerHTML = `
@@ -3477,8 +3595,9 @@ async function loadScheduledClassBanner() {
   const due = data.filter(r => { const st = parseSlotStartMinutes(r.time_slot); return st !== null && bd.minutes >= st - 10 && bd.minutes <= st + 30; });
   if (!due.length) { c.innerHTML = ''; return; }
 
-  const { data: act } = await db.from('attendance_sessions').select('course_code, session, year').eq('teacher_id', currentTeacher.id).eq('is_active', true).gte('expires_at', new Date().toISOString());
-  const pending = due.filter(r => !(act || []).some(a => a.course_code === r.course_code && a.session === r.session && a.year === r.year));
+  const dayBase = Date.parse(bd.dateStr + 'T00:00:00Z') - 6 * 3600 * 1000;
+  const { data: act } = await db.from('attendance_sessions').select('course_code, session, year, created_at').eq('teacher_id', currentTeacher.id).gte('created_at', new Date(dayBase).toISOString());
+  const pending = due.filter(r => { const winStart = dayBase + (parseSlotStartMinutes(r.time_slot) - 10) * 60000; return !(act || []).some(a => a.course_code === r.course_code && a.session === r.session && a.year === r.year && new Date(a.created_at).getTime() >= winStart); });
   if (!pending.length) { c.innerHTML = ''; return; }
 
   await getCourseInfoMap();
@@ -4174,6 +4293,163 @@ if ('serviceWorker' in navigator) {
       .catch(err => console.log('❌ SW error:', err));
   });
 }
+// ============================================================
+// TEACHER ROUTINE: my weekly routine + today's full schedule
+// ============================================================
+let teacherRoutineView = 'mine';
+let todayRoutineCache = null;
+let todayOnlyMine = false;
+let todayYear = '';
+
+function parseSlotEndMinutes(slot) {
+  const m = String(slot || '').match(/-\s*(\d{1,2})[.:](\d{2})/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  if (h < 8) h += 12;
+  return h * 60 + parseInt(m[2], 10);
+}
+
+function slotStatus(slot, nowMin) {
+  const st = parseSlotStartMinutes(slot), en = parseSlotEndMinutes(slot);
+  if (st === null || en === null) return 'upcoming';
+  if (nowMin < st) return 'upcoming';
+  return nowMin < en ? 'ongoing' : 'done';
+}
+
+function routineSegHtml(view) {
+  const b = (v, label) => `<button onclick="loadTeacherRoutineView('${v}')" class="seg-btn ${view === v ? 'active' : ''}">${label}</button>`;
+  return `<div class="seg">${b('mine', '📅 My Routine')}${b('today', '🗓️ Today\u2019s Classes')}</div>`;
+}
+
+async function loadTeacherRoutineView(view) {
+  teacherRoutineView = view === 'today' ? 'today' : 'mine';
+  if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
+  const el = document.getElementById('teacherContent');
+  if (!el || !currentTeacher) return;
+  el.innerHTML = '<p class="text-center text-gray-500 py-8">⏳ Loading...</p>';
+  try {
+    if (teacherRoutineView === 'today') {
+      const bd = getBangladeshNow();
+      const raw = await fetchRoutineData({ day: bd.day });
+      const list = sortRoutineData(await enrichRoutineData(raw));
+      todayRoutineCache = { bd, list };
+      renderTodayRoutine(true);
+      liveReportInterval = setInterval(() => renderTodayRoutine(false), 60000);
+      return;
+    }
+    const raw = await fetchRoutineData({ teacherId: currentTeacher.id });
+    const sorted = sortRoutineData(await enrichRoutineData(raw));
+    currentRoutineData = sorted;
+    currentRoutineContext = { view: 'teacher', teacherId: currentTeacher.id, filterInfo: `Teacher: ${currentTeacher.name}` };
+    if (!sorted.length) {
+      el.innerHTML = routineSegHtml('mine') + '<div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-8 text-center"><p class="text-4xl mb-2">📭</p><p class="text-gray-500 dark:text-gray-400">No routine assigned</p><p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Ask the admin to add day & time in Mapping</p></div>';
+      return;
+    }
+    el.innerHTML = `
+      ${routineSegHtml('mine')}
+      <div class="flex justify-between items-center flex-wrap gap-2 mb-3">
+        <h3 class="text-lg font-bold dark:text-white">📅 My Class Routine</h3>
+        <div class="flex gap-2">
+          <button onclick="exportRoutineExcel()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold btn-pop">📊 Excel</button>
+          <button onclick="exportRoutinePDF()" class="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-bold btn-pop">📄 PDF</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Total <span class="num-display">${sorted.length}</span> classes · auto-synced from admin mapping</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${renderRoutineCards(sorted, { showTeacher: false, showSession: true })}</div>`;
+  } catch (err) {
+    el.innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-red-500 mb-2">❌ ${escapeHtml(err.message || 'Load failed')}</p><button onclick="loadTeacherRoutineView('${teacherRoutineView}')" class="bg-lime-600 text-white px-4 py-2 rounded-xl font-bold btn-pop">🔄 Retry</button></div>`;
+  }
+}
+
+function setTodayFilter(kind, value) {
+  if (kind === 'mine') todayOnlyMine = !!value; else todayYear = value || '';
+  renderTodayRoutine(true);
+}
+
+function renderTodayRoutine(force) {
+  const el = document.getElementById('teacherContent');
+  if (!el || !todayRoutineCache || !currentTeacher) return;
+  if (!force && !document.getElementById('todayRoutineRoot')) return;
+  const { bd, list } = todayRoutineCache;
+  const nowMin = getBangladeshNow().minutes;
+  const isMine = r => String(r.teacher_id) === String(currentTeacher.id);
+  const years = [...new Set(list.map(r => r.year))];
+  if (todayYear && !years.includes(todayYear)) todayYear = '';
+  const shown = list.filter(r => (!todayOnlyMine || isMine(r)) && (!todayYear || r.year === todayYear));
+  currentRoutineData = shown;
+  const dateLabel = new Date(bd.dateStr + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  currentRoutineContext = { view: 'teacher-today', filterInfo: `Today · ${dateLabel}${todayOnlyMine ? ' · My classes' : ' · All teachers'}${todayYear ? ' · ' + todayYear : ''}` };
+
+  const ongoing = shown.filter(r => slotStatus(r.time_slot, nowMin) === 'ongoing').length;
+  const slots = {};
+  shown.forEach(r => { (slots[r.time_slot] = slots[r.time_slot] || []).push(r); });
+  const labels = { ongoing: '● Ongoing now', upcoming: 'Upcoming', done: 'Finished' };
+  const body = Object.keys(slots).sort((a, b) => routineTimeRank(a) - routineTimeRank(b)).map(slot => {
+    const st = slotStatus(slot, nowMin);
+    return `<div class="today-slot ${st}">
+      <div class="slot-time"><span class="num-display">${escapeHtml(slot)}</span><span class="slot-status">${labels[st]}</span></div>
+      <div class="flex-1 min-w-0">${slots[slot].map(r => `<div class="today-item ${isMine(r) ? 'mine' : ''}">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <b class="text-sm dark:text-white break-words">${escapeHtml(courseLabel(r.course_code, r.course_name))}</b>
+          <span class="flex gap-1 items-center">${isMine(r) ? '<span class="chip bg-indigo-600 text-white">You</span>' : ''}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(r.session)} · ${escapeHtml(r.year)}</span></span>
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>
+      </div>`).join('')}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div id="todayRoutineRoot">
+    ${routineSegHtml('today')}
+    <div class="flex justify-between items-start flex-wrap gap-2 mb-3">
+      <div><h3 class="text-lg font-bold dark:text-white">🗓️ Today\u2019s Classes</h3><p class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(dateLabel)} · auto-refreshes every minute</p></div>
+      <div class="flex gap-2">
+        <button onclick="exportRoutineExcel()" class="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold btn-pop">📊 Excel</button>
+        <button onclick="exportRoutinePDF()" class="bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-bold btn-pop">📄 PDF</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-2 mb-3 text-center">
+      <div class="bg-indigo-50 dark:bg-indigo-900/30 rounded-xl p-2"><p class="text-xl font-extrabold text-indigo-600 dark:text-indigo-300 num-display">${list.length}</p><p class="text-[10px] font-semibold text-gray-500 dark:text-gray-400">All classes</p></div>
+      <div class="bg-purple-50 dark:bg-purple-900/30 rounded-xl p-2"><p class="text-xl font-extrabold text-purple-600 dark:text-purple-300 num-display">${list.filter(isMine).length}</p><p class="text-[10px] font-semibold text-gray-500 dark:text-gray-400">Mine</p></div>
+      <div class="bg-emerald-50 dark:bg-emerald-900/30 rounded-xl p-2"><p class="text-xl font-extrabold text-emerald-600 dark:text-emerald-300 num-display">${ongoing}</p><p class="text-[10px] font-semibold text-gray-500 dark:text-gray-400">Ongoing</p></div>
+    </div>
+    <div class="flex gap-2 items-center flex-wrap mb-4">
+      <label class="flex items-center gap-2 text-sm font-semibold dark:text-white"><input type="checkbox" ${todayOnlyMine ? 'checked' : ''} onchange="setTodayFilter('mine', this.checked)"> Only my classes</label>
+      <select onchange="setTodayFilter('year', this.value)" class="border-2 rounded-xl px-3 py-1.5 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">All years</option>${years.map(y => `<option ${y === todayYear ? 'selected' : ''}>${escapeHtml(y)}</option>`).join('')}</select>
+    </div>
+    ${shown.length ? body : '<div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-8 text-center"><p class="text-4xl mb-2">🌿</p><p class="text-gray-500 dark:text-gray-400">No classes scheduled for today</p></div>'}
+  </div>`;
+}
+
+// flush (not drop) pending mark auto-saves when leaving a tab
+function flushPendingMarkSaves() {
+  try {
+    Object.keys(markSaveTimers).forEach(sid => {
+      clearTimeout(markSaveTimers[sid]);
+      const inp = document.querySelector(`input[data-student-id="${CSS.escape(String(sid))}"]`);
+      if (inp && String(inp.value).trim() !== '') saveMark(sid, inp.value, inp);
+    });
+    markSaveTimers = {};
+  } catch (e) { console.warn('flush marks', e); }
+}
+
+function markActiveTab(containerId, tab) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.querySelectorAll('button').forEach(b => b.classList.toggle('active', (b.getAttribute('onclick') || '').includes("'" + tab + "'")));
+}
+const _origShowAdminTab = showAdminTab;
+showAdminTab = async function (tab) { markActiveTab('adminTabs', tab); return _origShowAdminTab(tab); };
+const _origShowTeacherTab = showTeacherTab;
+showTeacherTab = async function (tab) { flushPendingMarkSaves(); markActiveTab('teacherTabsDesktop', tab); return _origShowTeacherTab(tab); };
+
+(function cleanPinCache() {
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('amc_last_session_')).forEach(k => {
+      try { const x = JSON.parse(localStorage.getItem(k)); if (!x || !x.expires_at || new Date(x.expires_at) <= new Date()) localStorage.removeItem(k); }
+      catch (e) { localStorage.removeItem(k); }
+    });
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>
