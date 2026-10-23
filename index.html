@@ -965,7 +965,8 @@ async function loadRoutineTeachers() {
   const sel = document.getElementById('rvTeacher');
   if (!sel) return;
   try {
-    const { data } = await db.from('teachers').select('id, name').eq('is_active', true).order('name');
+    const { data: dir } = await db.rpc('get_teacher_directory');
+    const data = (dir || []).filter(t => t.is_active);
     sel.innerHTML = '<option value="">All Teachers</option>' +
       (data || []).map(t => `<option value="${attrEsc(t.id)}">${escapeHtml(t.name)}</option>`).join('');
   } catch (e) { console.warn('routine teachers', e); }
@@ -1488,12 +1489,7 @@ async function submitPin() {
     const timeoutMs = getNetworkQuality() === 'slow' ? 12000 : 8000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const { data: sessions, error } = await db.from('attendance_sessions')
-      .select('id, pin, course_code, session, year, date, teacher_id, expires_at, is_active')
-      .eq('pin', pin).eq('is_active', true)
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false }).limit(1)
-      .abortSignal(controller.signal);
+    const { data: sessions, error } = await sessByPin(pin, controller.signal);
 
     clearTimeout(timeoutId);
 
@@ -1523,11 +1519,7 @@ async function submitPin() {
 
 async function verifyPinBackground(pin) {
   try {
-    const { data: sessions, error: vErr } = await db.from('attendance_sessions')
-      .select('id, pin, course_code, session, year, date, teacher_id, expires_at, is_active')
-      .eq('pin', pin).eq('is_active', true)
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false }).limit(1);
+    const { data: sessions, error: vErr } = await sessByPin(pin);
     if (sessions && sessions.length) {
       currentPinSession = sessions[0];
       localStorage.setItem('amc_last_session_' + pin, JSON.stringify(currentPinSession));
@@ -2062,6 +2054,7 @@ async function showAdminTab(tab) {
           <button onclick="showReportTab('attendance')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg">📋 Attendance</button>
           <button onclick="showReportTab('exam')" class="bg-amber-500 text-white px-4 py-2 rounded-lg">📝 Marks</button>
           <button onclick="showReportTab('individual')" class="bg-pink-500 text-white px-4 py-2 rounded-lg">🎓 Individual</button>
+          <button onclick="showReportTab('examwise')" class="bg-teal-600 text-white px-4 py-2 rounded-lg">🏆 Exam Result</button>
         </div>
         <div id="reportContent"></div>
       </div>`;
@@ -3056,6 +3049,9 @@ function showReportTab(tab) {
     el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="arSession" placeholder="Session" list="sessionOptions" class="border-2 rounded-xl p-2 flex-1 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="arYear" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button><button onclick="exportAttendancePDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button></div></div><div id="attendanceReportArea"></div></div>`;
   } else if (tab === 'exam') {
     el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="erSession" placeholder="Session" list="sessionOptions" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="erYear" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><input id="erCourse" placeholder="Course" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportExamExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊</button><button onclick="exportExamPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄</button></div></div><div id="examReportArea"></div></div>`;
+  } else if (tab === 'examwise') {
+    el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="erxSession" placeholder="Session" list="sessionOptions" onchange="erxFillExams()" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="erxYear" onchange="erxFillExams()" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><select id="erxExam" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Exam</option></select><button onclick="loadExamwiseReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportExamwiseExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button><button onclick="exportExamwisePDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button></div></div><div id="examwiseReportArea"></div></div>`;
+    erxFillExams();
   } else if (tab === 'individual') {
     el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="irSession" placeholder="Session" list="sessionOptions" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="irYear" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><input id="irRoll" placeholder="Roll / Reg" class="border-2 rounded-xl p-2 flex-1 dark:bg-gray-600 dark:text-white dark:border-gray-500"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportIndividualExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊</button><button onclick="exportIndividualPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄</button></div></div><div id="individualReportArea"></div></div>`;
   }
@@ -3139,6 +3135,81 @@ async function exportAttendancePDF() {
     startY: 28, styles: { fontSize: 8, font: 'HindSiliguri' }, headStyles: { fillColor: [79, 70, 229], font: 'HindSiliguri', textColor: 255, halign: 'center' }
   });
   doc.save(`Attendance_${session}_${year}.pdf`);
+}
+
+
+// ---- helpers: token-based session access (PIN column stays private) ----
+async function mySess(o = {}) {
+  const { data, error } = await db.rpc('t_my_sessions', { p_token: currentTeacher.token, p_active_only: !!o.active, p_from: o.from || null, p_to: o.to || null, p_session: o.session || null, p_year: o.year || null, p_course_code: o.course || null, p_date: o.date || null });
+  return { data: data || [], error };
+}
+async function mySessOne(o) { const r = await mySess(o); return { data: r.data[0] || null, error: r.error }; }
+async function sessByPin(pin, sig) {
+  let q = db.rpc('get_session_by_pin', { p_pin: pin });
+  if (sig) q = q.abortSignal(sig);
+  const { data, error } = await q;
+  return { data: data ? [{ ...data, is_active: true }] : [], error };
+}
+
+// ---- Exam-wise result report (all courses of one exam) ----
+const STD_EXAMS = ['1st In-course', '2nd In-course', 'Assignment', 'Quiz Test', 'Class Test', 'Departmental Exam', 'Annual Exam'];
+let currentExamwiseData = null;
+async function erxFillExams() {
+  const sel = document.getElementById('erxExam'); if (!sel) return;
+  const s = document.getElementById('erxSession').value.trim(), y = document.getElementById('erxYear').value, keep = sel.value;
+  const list = [...STD_EXAMS];
+  if (s && y) {
+    const { data } = await db.from('marks').select('exam_type').eq('session', s).eq('year', y).limit(5000);
+    (data || []).forEach(m => { if (m.exam_type && !list.includes(m.exam_type)) list.push(m.exam_type); });
+  }
+  sel.innerHTML = '<option value="">Exam</option>' + list.map(e => `<option>${escapeHtml(e)}</option>`).join('');
+  if (list.includes(keep)) sel.value = keep;
+}
+async function loadExamwiseReport() {
+  const session = document.getElementById('erxSession').value.trim(), year = document.getElementById('erxYear').value, exam = document.getElementById('erxExam').value;
+  const area = document.getElementById('examwiseReportArea');
+  currentExamwiseData = null;
+  if (!session || !year || !exam) { area.innerHTML = '<p class="text-red-500 text-center py-4">Select session, year and exam</p>'; return; }
+  area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
+  try {
+    const { data: sR, error: e1 } = await db.from('students').select('id, class_roll, reg_no, name').eq('session', session).eq('year', year).eq('status', 'active');
+    if (e1) throw e1;
+    const students = sortStudents(sR || []);
+    const { data: marks, error: e2 } = await db.from('marks').select('student_id, course_code, marks').eq('session', session).eq('year', year).eq('exam_type', exam).limit(20000);
+    if (e2) throw e2;
+    const courses = [...new Set((marks || []).map(m => m.course_code))].sort();
+    if (!courses.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No marks found for this exam</p>'; return; }
+    const mMap = {};
+    marks.forEach(m => { (mMap[m.student_id] = mMap[m.student_id] || {})[m.course_code] = m.marks; });
+    currentExamwiseData = { session, year, exam, courses, students, mMap };
+    const th = 'p-2 border dark:border-gray-600 dark:text-white';
+    area.innerHTML = `<p class="text-sm mb-2 dark:text-white"><b>Exam:</b> ${escapeHtml(exam)} | <b>Session:</b> ${escapeHtml(session)} | <b>Year:</b> ${escapeHtml(year)} | <b>Courses:</b> ${courses.length}</p>
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600"><thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="${th} num-cell">Roll</th><th class="${th} num-cell">Reg</th><th class="${th} text-left">Name</th>${courses.map(c => `<th class="${th} num-cell">${escapeHtml(c)}</th>`).join('')}<th class="${th}">Total</th></tr></thead><tbody>
+      ${students.map(s => { const row = mMap[s.id] || {}; const total = courses.reduce((t, c) => t + (Number(row[c]) || 0), 0);
+        return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(s.class_roll)}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(s.reg_no || '')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(s.name)}</td>${courses.map(c => `<td class="p-2 border dark:border-gray-600 text-center num-cell">${row[c] ?? '-'}</td>`).join('')}<td class="p-2 border dark:border-gray-600 text-center font-bold num-cell">${total}</td></tr>`; }).join('') || '<tr><td colspan="20" class="text-center py-4 text-gray-400">No students</td></tr>'}
+      </tbody></table></div>`;
+  } catch (err) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`; }
+}
+function examwiseRows() {
+  const { courses, students, mMap } = currentExamwiseData;
+  return students.map(s => { const row = mMap[s.id] || {}; const total = courses.reduce((t, c) => t + (Number(row[c]) || 0), 0); return [s.class_roll, s.reg_no || '', s.name, ...courses.map(c => row[c] ?? '-'), total]; });
+}
+function exportExamwiseExcel() {
+  if (!currentExamwiseData) return toastWarning('Load report first');
+  const { session, year, exam, courses } = currentExamwiseData;
+  const data = [[`Exam Result - ${exam}`], [`Session: ${session} | Year: ${year}`], [], ['Roll', 'Reg No.', 'Name', ...courses, 'Total'], ...examwiseRows()];
+  const ws = XLSX.utils.aoa_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Result');
+  XLSX.writeFile(wb, `ExamResult_${exam.replace(/[^\w.-]+/g, '_')}_${session}_${year}.xlsx`);
+}
+async function exportExamwisePDF() {
+  if (!currentExamwiseData) return toastWarning('Load report first');
+  const { session, year, exam, courses } = currentExamwiseData;
+  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
+  await setupBanglaFont(doc);
+  doc.setFontSize(14); doc.text(`Exam Result - ${exam}`, 14, 15);
+  doc.setFontSize(10); doc.text(`Session: ${session} | Year: ${year}`, 14, 22);
+  doc.autoTable({ head: [['Roll', 'Reg No.', 'Name', ...courses, 'Total']], body: examwiseRows(), startY: 28, styles: { fontSize: courses.length > 8 ? 6 : 8, font: 'HindSiliguri' }, headStyles: { fillColor: [13, 148, 136], font: 'HindSiliguri' } });
+  doc.save(`ExamResult_${exam.replace(/[^\w.-]+/g, '_')}_${session}_${year}.pdf`);
 }
 
 let currentExamData = null;
@@ -3397,7 +3468,7 @@ async function showTeacherTab(tab) {
   closeMoreMenu();
 
   if (tab === 'takeAttendance') {
-    const { data: activeSess } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('is_active', true).gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1);
+    const { data: activeSess } = await mySess({ active: true });
     if (activeSess && activeSess.length > 0) {
       const s = activeSess[0];
       const m = Math.max(0, Math.floor((new Date(s.expires_at) - new Date()) / 60000));
@@ -3616,16 +3687,16 @@ async function openBulkPresent() {
   const [course_code, session, year] = cv.split('|');
   showGlobalLoader();
   try {
-    let { data: sess } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('session', session).eq('year', year).eq('course_code', course_code).eq('date', date).maybeSingle();
+    let { data: sess } = await mySessOne({ session, year, course: course_code, date });
     if (!sess) {
-      const { data: pd, error: pe } = await db.rpc('teacher_create_session', { p_teacher_id: currentTeacher.id, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
+      const { data: pd, error: pe } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
       if (pe || !pd?.ok) return toastError('Session creation failed');
-      const { data: ns } = await db.from('attendance_sessions').select('*').eq('id', pd.session_id).maybeSingle();
+      const { data: ns } = await mySessOne({ session, year, course: course_code, date });
       sess = ns;
     }
     const ok = await confirmAction('Mark all present?', 'Students who already marked will be skipped.', 'Yes', '#059669');
     if (!ok) return;
-    const { data, error } = await db.rpc('bulk_mark_all_present', { p_session_id: sess.id, p_teacher_id: currentTeacher.id });
+    const { data, error } = await db.rpc('t_bulk_present', { p_token: currentTeacher.token, p_session_id: sess.id });
     if (error || !data.ok) return toastError(data?.message || error?.message);
     toastSuccess(`${data.added} students marked present`);
   } finally { hideGlobalLoader(); }
@@ -3661,7 +3732,7 @@ async function loadScheduledClassBanner() {
   if (!due.length) { c.innerHTML = ''; return; }
 
   const dayBase = Date.parse(bd.dateStr + 'T00:00:00Z') - 6 * 3600 * 1000;
-  const { data: act } = await db.from('attendance_sessions').select('course_code, session, year, created_at').eq('teacher_id', currentTeacher.id).gte('created_at', new Date(dayBase).toISOString());
+  const { data: act } = await mySess({ from: bd.dateStr, to: bd.dateStr });
   const pending = due.filter(r => { const winStart = dayBase + (parseSlotStartMinutes(r.time_slot) - 10) * 60000; return !(act || []).some(a => a.course_code === r.course_code && a.session === r.session && a.year === r.year && new Date(a.created_at).getTime() >= winStart); });
   if (!pending.length) { c.innerHTML = ''; return; }
 
@@ -3684,7 +3755,7 @@ async function generateScheduledPin(btn) {
   btn.disabled = true;
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('teacher_create_session', { p_teacher_id: currentTeacher.id, p_session: session, p_year: year, p_course_code: course_code, p_date: getBangladeshNow().dateStr });
+    const { data, error } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: getBangladeshNow().dateStr });
     if (error || !data || !data.ok) { btn.disabled = false; return toastError((data && data.message) || 'PIN generation failed'); }
     toastSuccess('PIN generated');
     await showTeacherTab('takeAttendance');
@@ -3697,7 +3768,7 @@ async function loadActivePinBanner() {
   if (!currentTeacher) return;
   const c = document.getElementById('activePinBannerContainer');
   if (!c) return;
-  const { data } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('is_active', true).gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(1);
+  const { data } = await mySess({ active: true });
   if (!data || !data.length) { c.innerHTML = ''; if (activeSessionCheckInterval) { clearInterval(activeSessionCheckInterval); activeSessionCheckInterval = null; } return; }
   const s = data[0];
   await getCourseInfoMap();
@@ -3720,7 +3791,7 @@ async function closeActivePinFromBanner(sessionId) {
   if (!ok) return;
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('close_attendance_session', { p_session_id: sessionId, p_teacher_id: currentTeacher.id });
+    const { data, error } = await db.rpc('t_close_session', { p_token: currentTeacher.token, p_session_id: sessionId });
     if (error || !data.ok) return toastError(data?.message || error?.message);
     toastSuccess('PIN closed');
     loadActivePinBanner();
@@ -3737,7 +3808,7 @@ async function generatePin() {
   if (!date) return toastWarning('Select date');
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('teacher_create_session', { p_teacher_id: currentTeacher.id, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
+    const { data, error } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
     if (error || !data.ok) return toastError(data?.message || 'PIN generation failed');
     toastSuccess('PIN generated');
     renderPinDisplay(data.pin, data.session_id, 45, new Date(Date.now() + 45 * 60000).toISOString());
@@ -3766,7 +3837,7 @@ async function closePin(sessionId) {
   if (!ok) return;
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('close_attendance_session', { p_session_id: sessionId, p_teacher_id: currentTeacher.id });
+    const { data, error } = await db.rpc('t_close_session', { p_token: currentTeacher.token, p_session_id: sessionId });
     if (error || !data.ok) return toastError(data?.message || error?.message);
     if (pinTimerInterval) { clearInterval(pinTimerInterval); pinTimerInterval = null; }
     const el = document.getElementById('pinDisplay');
@@ -3777,7 +3848,7 @@ async function closePin(sessionId) {
 }
 
 async function loadLiveSessions() {
-  const { data } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('is_active', true).gte('expires_at', new Date().toISOString()).order('created_at', { ascending: false });
+  const { data } = await mySess({ active: true });
   const sel = document.getElementById('liveSessionSelect');
   await getCourseInfoMap();
   sel.innerHTML = data?.map(s => `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — PIN ${escapeHtml(s.pin)}</option>`).join('') || '<option>No sessions</option>';
@@ -3809,11 +3880,11 @@ async function manualAttendance() {
   const [course_code, session, year] = cv.split('|');
   showGlobalLoader();
   try {
-    let { data: sess } = await db.from('attendance_sessions').select('*').eq('teacher_id', currentTeacher.id).eq('session', session).eq('year', year).eq('course_code', course_code).eq('date', date).maybeSingle();
+    let { data: sess } = await mySessOne({ session, year, course: course_code, date });
     if (!sess) {
-      const { data: pd, error: pe } = await db.rpc('teacher_create_session', { p_teacher_id: currentTeacher.id, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
+      const { data: pd, error: pe } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
       if (pe || !pd?.ok || !pd?.session_id) return toastError('Session creation failed');
-      const { data: ns } = await db.from('attendance_sessions').select('*').eq('id', pd.session_id).maybeSingle();
+      const { data: ns } = await mySessOne({ session, year, course: course_code, date });
       sess = ns;
     }
     if (!sess) return toastError('Session ID not found');
@@ -3842,8 +3913,8 @@ async function loadTeacherAttendanceReport() {
   await getCourseInfoMap();
   let fs = null, fy = null, fc = null;
   if (cv) [fc, fs, fy] = cv.split('|');
-  let q = db.from('attendance_sessions').select('id, course_code, date, session, year, pin').eq('teacher_id', currentTeacher.id).gte('date', fromDate).lte('date', toDate).order('date', { ascending: false });
-  if (fs) q = q.eq('session', fs); if (fy) q = q.eq('year', fy); if (fc) q = q.eq('course_code', fc);
+  let q = mySess({ from: fromDate, to: toDate, session: fs, year: fy, course: fc });
+  
   const { data: sessions, error: sErr } = await q;
   if (sErr) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(sErr.message)}</p>`; return; }
   if (!sessions || !sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
@@ -3892,7 +3963,7 @@ async function changeAttendanceStatus(recordId, currentStatus) {
   if (!result.isConfirmed || result.value === currentStatus) return;
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('update_attendance_status', { p_record_id: recordId, p_new_status: result.value, p_teacher_id: currentTeacher.id });
+    const { data, error } = await db.rpc('t_update_status', { p_token: currentTeacher.token, p_record_id: recordId, p_new_status: result.value });
     if (error || !data.ok) return toastError(data?.message || error?.message);
     toastSuccess('Updated'); loadTeacherAttendanceReport();
   } finally { hideGlobalLoader(); }
@@ -3960,7 +4031,13 @@ async function loadMarkEntry() {
     const students = sortStudents(sRaw || []);
     if (!students.length) { toastWarning('No students'); return; }
 
-    const { data: existing } = await db.from('marks').select('student_id, marks, is_published').eq('session', session).eq('year', year).eq('course_code', course).eq('exam_type', exam);
+    let existing;
+    if (currentTeacher?.token) {
+      const { data: er } = await db.rpc('t_get_marks', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course, p_exam_type: exam });
+      existing = (er || []).map(m => ({ student_id: m.student_id, marks: m.mark_value, is_published: m.is_published }));
+    } else {
+      ({ data: existing } = await db.from('marks').select('student_id, marks, is_published').eq('session', session).eq('year', year).eq('course_code', course).eq('exam_type', exam));
+    }
     const mMap = {};
     let anyPublished = false;
     existing?.forEach(m => { mMap[m.student_id] = m.marks; if (m.is_published) anyPublished = true; });
@@ -4029,7 +4106,7 @@ async function saveMark(studentId, marks, inputEl) {
     return toastWarning('Marks must be 0-100');
   }
   if (ctx.mMap[studentId] === num) return;
-  const { data, error } = await db.rpc('save_mark', { p_session: ctx.session, p_year: ctx.year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: studentId, p_marks: num, p_teacher_id: currentTeacher ? currentTeacher.id : null });
+  const { data, error } = await db.rpc(currentTeacher?.token ? 't_save_mark' : 'save_mark', { ...(currentTeacher?.token ? { p_token: currentTeacher.token } : { p_teacher_id: null }), p_session: ctx.session, p_year: ctx.year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: studentId, p_marks: num });
   if (error || !data?.ok) {
     if (inputEl) inputEl.style.background = '#fecaca';
     setTimeout(() => { if (inputEl) inputEl.style.background = ''; }, 1500);
@@ -4118,7 +4195,7 @@ async function importMarksExcel() {
         if (mv === '' || mv === undefined || mv === null) continue;
         const num = Number(banglaToEnglish(mv));
         if (isNaN(num) || num < 0 || num > 100) { iv++; continue; }
-        const { error } = await db.rpc('save_mark', { p_session: ctx.session, p_year: ctx.year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: sid, p_marks: num, p_teacher_id: currentTeacher ? currentTeacher.id : null });
+        const { error } = await db.rpc(currentTeacher?.token ? 't_save_mark' : 'save_mark', { ...(currentTeacher?.token ? { p_token: currentTeacher.token } : { p_teacher_id: null }), p_session: ctx.session, p_year: ctx.year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: sid, p_marks: num });
         if (error) iv++; else { ok++; ctx.mMap[sid] = num; }
       }
       status.innerHTML = `<div class="bg-emerald-50 dark:bg-emerald-900/30 p-4 rounded-xl"><p class="font-bold text-emerald-700 dark:text-emerald-300 mb-2">✅ Import done</p><p class="text-sm dark:text-white">✓ Success: <span class="num-display">${ok}</span></p><p class="text-sm dark:text-white">✗ Not found: <span class="num-display">${nf}</span></p><p class="text-sm dark:text-white">❌ Invalid: <span class="num-display">${iv}</span></p></div>`;
