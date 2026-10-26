@@ -3289,10 +3289,7 @@ function yearLabel(code) {
 // Which session_year (YYYY) values have active students in a given class/year
 async function getAvailableSessionYears(year) {
   try {
-    const { data, error } = await db.from('students')
-      .select('session_year')
-      .eq('year', year)
-      .eq('status', 'active');
+    const { data, error } = await db.rpc('get_available_session_years', { p_year: year });
     if (error) throw error;
     // unique years, newest first (e.g. 2027, 2026)
     const years = [...new Set((data || []).map(s => s.session_year))].filter(Boolean).sort((a, b) => b - a);
