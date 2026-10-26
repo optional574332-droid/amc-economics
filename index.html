@@ -639,10 +639,7 @@ function withTimeout(promise, ms) {
 async function cacheStudentsFor(session, year) {
   if (!navigator.onLine || !session || !year) return;
   try {
-    const { data, error } = await db.from('students')
-      .select('id, name, class_roll, reg_no')
-      .eq('session', session).eq('year', year).eq('status', 'active');
-    if (error || !data) return;
+    const data = await classStudents(session, year, 'id, name, class_roll, reg_no, session, is_irregular');
     localStorage.setItem('amc_students_' + session + '_' + year, JSON.stringify(data));
   } catch (e) { console.warn('student cache', e); }
 }
@@ -650,13 +647,10 @@ async function cacheStudentsFor(session, year) {
 async function cacheTeacherStudents() {
   if (!currentTeacher || !navigator.onLine) return;
   try {
-    const { data } = await db.from('teacher_courses').select('session, year').eq('teacher_id', currentTeacher.id);
-    const seen = new Set();
-    for (const r of (data || [])) {
-      const k = r.session + '|' + r.year;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      await cacheStudentsFor(r.session, r.year);
+    const { data } = await db.from('teacher_courses').select('year').eq('teacher_id', currentTeacher.id);
+    for (const y of new Set((data || []).map(r => r.year))) {
+      const { data: ss } = await db.from('students').select('session').eq('year', y).eq('status', 'active').eq('is_irregular', false).limit(1000);
+      for (const s of new Set((ss || []).map(r => r.session))) await cacheStudentsFor(s, y);
     }
   } catch (e) { console.warn('teacher student cache', e); }
 }
@@ -695,9 +689,9 @@ function getOfflineQueue() {
   try { const q = localStorage.getItem('amc_offline_queue'); return q ? JSON.parse(q) : []; } catch (e) { return []; }
 }
 function saveOfflineQueue(q) { localStorage.setItem('amc_offline_queue', JSON.stringify(q)); }
-function queueAttendance(pin, roll) {
+function queueAttendance(pin, roll, studentId) {
   const q = getOfflineQueue();
-  q.push({ pin, roll, deviceId, timestamp: Date.now() });
+  q.push({ pin, roll, studentId: studentId || null, deviceId, timestamp: Date.now() });
   saveOfflineQueue(q);
   updateOnlineStatus();
 }
@@ -713,7 +707,7 @@ async function syncOfflineQueue() {
     let synced = 0;
     for (const item of q) {
       try {
-        const { data, error } = await db.rpc('student_mark_attendance_v2', { p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId });
+        const { data, error } = item.studentId ? await db.rpc('student_mark_attendance_v3', { p_pin: item.pin, p_student_id: item.studentId, p_device_id: item.deviceId }) : await db.rpc('student_mark_attendance_v2', { p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId });
         if (error || !data?.ok) { remaining.push(item); } else { synced++; }
       } catch (e) { remaining.push(item); }
     }
@@ -756,8 +750,9 @@ let banglaFontBase64 = null;
 async function loadBanglaFont() {
   if (banglaFontLoaded) return banglaFontBase64;
   try {
-    const r = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/hindsiliguri/HindSiliguri-Regular.ttf');
-    if (!r.ok) return null;
+    let r = await fetch('fonts/HindSiliguri-Regular.ttf').catch(() => null);
+    if (!r || !r.ok) r = await fetch('https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/hindsiliguri/HindSiliguri-Regular.ttf').catch(() => null);
+    if (!r || !r.ok) return null;
     const b = await r.arrayBuffer();
     const bytes = new Uint8Array(b);
     let bin = '';
@@ -883,7 +878,6 @@ async function fetchRoutineData(filters = {}) {
     .not('time_slot', 'is', null);
   if (filters.day) q = q.eq('class_day', filters.day);
   if (filters.year) q = q.eq('year', filters.year);
-  if (filters.session) q = q.eq('session', filters.session);
   if (filters.teacherId) q = q.eq('teacher_id', filters.teacherId);
   const { data, error } = await q;
   if (error) throw error;
@@ -892,24 +886,16 @@ async function fetchRoutineData(filters = {}) {
 
 async function enrichRoutineData(rawRoutines) {
   if (!rawRoutines || !rawRoutines.length) return [];
-  const courseCodes = [...new Set(rawRoutines.map(r => r.course_code))];
-  const nameMap = {};
-  if (courseCodes.length) {
-    try {
-      const { data: courses } = await db.from('courses')
-        .select('course_code, session, year, course_name')
-        .in('course_code', courseCodes);
-      (courses || []).forEach(c => {
-        nameMap[`${c.session}|${c.year}|${c.course_code}`] = c.course_name;
-      });
-    } catch (e) { console.warn('routine course names', e); }
-  }
   await getCourseInfoMap();
-  return rawRoutines.map(r => ({
-    ...r,
-    course_name: nameMap[`${r.session}|${r.year}|${r.course_code}`] || '',
-    teacher_name: r.teachers?.name || 'Unknown'
-  }));
+  const seen = new Set(), out = [];
+  rawRoutines.forEach(r => {
+    const k = [r.class_day, r.time_slot, r.course_code, r.teacher_id, r.year].join('|');
+    if (seen.has(k)) return;
+    seen.add(k);
+    const i = courseInfo(r.course_code);
+    out.push({ ...r, course_name: i.name || i.short || '', teacher_name: r.teachers?.name || 'Unknown' });
+  });
+  return out;
 }
 
 function sortRoutineData(routines) {
@@ -953,7 +939,7 @@ function renderRoutineCards(routines, options = {}) {
                 </div>
                 ${showTeacher ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>` : ''}
               </div>
-              ${showSession ? `<div class="text-right whitespace-nowrap"><span class="bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-1 rounded text-xs num-display">${escapeHtml(r.session)} · ${escapeHtml(r.year)}</span></div>` : ''}
+              ${showSession ? `<div class="text-right whitespace-nowrap"><span class="bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-1 rounded text-xs num-display">${escapeHtml(yearLabel(r.year))}</span></div>` : ''}
             </div>
           </div>`).join('')}
       </div>
@@ -1033,13 +1019,13 @@ function buildRoutineFilterInfo({ day, year, session, teacherId }) {
 
 async function exportRoutineExcel() {
   if (!currentRoutineData || !currentRoutineData.length) return toastWarning('Load routine first');
-  const data = [['Day', 'Time', 'Room', 'Course Code', 'Course Name', 'Teacher', 'Session', 'Year']];
+  const data = [['Day', 'Time', 'Room', 'Course Code', 'Course Name', 'Teacher', 'Class']];
   currentRoutineData.forEach(r => {
     data.push([
       r.class_day, r.time_slot, r.room || '', r.course_code,
       r.course_name || '', r.teacher_name || '',
-      r.session, r.year
-    ]);
+ yearLabel(r.year)
+]);
   });
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 32 }, { wch: 26 }, { wch: 12 }, { wch: 16 }];
@@ -1053,7 +1039,7 @@ async function exportRoutinePDF() {
   if (!currentRoutineData || !currentRoutineData.length) return toastWarning('Load routine first');
   const w = window.open('', '_blank');
   if (!w) return toastWarning('Allow pop-ups, then tap PDF again');
-  const rows = currentRoutineData.map(r => `<tr><td>${escapeHtml(r.class_day)}</td><td>${escapeHtml(r.time_slot)}</td><td>${escapeHtml(r.room || '-')}</td><td>${escapeHtml(r.course_code)}</td><td>${escapeHtml(r.course_name || '-')}</td><td>${escapeHtml(r.teacher_name || '-')}</td><td>${escapeHtml(r.session)}</td><td>${escapeHtml(r.year)}</td></tr>`).join('');
+  const rows = currentRoutineData.map(r => `<tr><td>${escapeHtml(r.class_day)}</td><td>${escapeHtml(r.time_slot)}</td><td>${escapeHtml(r.room || '-')}</td><td>${escapeHtml(r.course_code)}</td><td>${escapeHtml(r.course_name || '-')}</td><td>${escapeHtml(r.teacher_name || '-')}</td><td>${escapeHtml(yearLabel(r.year))}</td></tr>`).join('');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Class Routine</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
 <style>@page{size:A4 landscape;margin:12mm}body{font-family:'Hind Siliguri','Segoe UI',Arial,sans-serif;color:#1f2937}
@@ -1062,7 +1048,7 @@ async function exportRoutinePDF() {
 th{background:#4f46e5;color:#fff;text-align:left;padding:7px}td{padding:6px 7px;border-bottom:1px solid #e5e7eb}tr:nth-child(even) td{background:#f5f3ff}</style></head>
 <body><div class="h"><b>AMC Economics</b><span>Class Routine</span></div>
 <div class="m"><span>Filter: ${escapeHtml(currentRoutineContext?.filterInfo || 'All classes')}</span><span>Generated: ${escapeHtml(new Date().toLocaleString('en-GB'))}</span></div>
-<table><thead><tr><th>Day</th><th>Time</th><th>Room</th><th>Code</th><th>Course</th><th>Teacher</th><th>Session</th><th>Year</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+<table><thead><tr><th>Day</th><th>Time</th><th>Room</th><th>Code</th><th>Course</th><th>Teacher</th><th>Class</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
   w.document.close();
   setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 700);
   toastInfo('Choose “Save as PDF” in the print dialog');
@@ -1602,38 +1588,28 @@ function showAttendanceForm() {
 async function loadStudentSuggestions(query) {
   const s = currentPinSession;
   if (!s) return;
-
+  const q = String(query).replace(/[,()*%]/g, '');
+  if (!q) return;
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + s.session + '_' + s.year);
     if (cached) {
       const all = JSON.parse(cached);
-      let filtered = all.filter(st => (st.class_roll && st.class_roll.toString() === query) || (st.reg_no && st.reg_no.toString() === query));
-      if (filtered.length === 0) {
-        filtered = all.filter(st => (st.class_roll && st.class_roll.toString().includes(query)) || (st.reg_no && st.reg_no.toString().includes(query)));
-      }
-      return renderSuggestions(filtered.slice(0, 10));
+      const lc = q.toLowerCase();
+      let f = all.filter(st => String(st.class_roll) === q || String(st.reg_no) === q);
+      if (!f.length) f = all.filter(st => String(st.class_roll || '').toLowerCase().includes(lc) || String(st.reg_no || '').toLowerCase().includes(lc) || String(st.name || '').toLowerCase().includes(lc));
+      return renderSuggestions(f.slice(0, 10));
     }
     return;
   }
-
   try {
-    let { data: exactMatch } = await db.from('students')
-      .select('id, name, class_roll, reg_no')
-      .eq('session', s.session).eq('year', s.year).eq('status', 'active')
-      .or(`class_roll.eq.${query},reg_no.eq.${query}`).limit(5);
-
-    if (!exactMatch || exactMatch.length === 0) {
-      const { data: partialMatch } = await db.from('students')
-        .select('id, name, class_roll, reg_no')
-        .eq('session', s.session).eq('year', s.year).eq('status', 'active')
-        .or(`class_roll.ilike.%${query}%,reg_no.ilike.%${query}%`).limit(10);
-      exactMatch = partialMatch || [];
+    const cols = 'id, name, class_roll, reg_no, session, is_irregular';
+    let { data: hit } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, q, false)).limit(5);
+    if (!hit || !hit.length) {
+      const r = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, q, true)).limit(10);
+      hit = r.data || [];
     }
-    renderSuggestions(exactMatch);
-  } catch (err) {
-    console.error('Suggestion error:', err);
-    renderSuggestions([]);
-  }
+    renderSuggestions(hit);
+  } catch (err) { console.error('Suggestion error:', err); renderSuggestions([]); }
 }
 
 function renderSuggestions(students) {
@@ -1650,8 +1626,8 @@ function renderSuggestions(students) {
   box.innerHTML = sorted.map(stu => `
     <div class="suggestion-item" data-id="${escapeHtml(stu.id)}" data-roll="${escapeHtml(stu.class_roll)}" data-name="${escapeHtml(stu.name)}" data-reg="${escapeHtml(stu.reg_no || '')}">
       <div>
-        <div class="font-bold text-sm"><span class="num-display">${escapeHtml(stu.class_roll)}</span> — ${escapeHtml(stu.name)}</div>
-        <div class="text-xs text-gray-500 dark:text-gray-400">Reg: <span class="num-display">${escapeHtml(stu.reg_no || '-')}</span></div>
+        <div class="font-bold text-sm"><span class="num-display">${escapeHtml(stu.class_roll)}</span> — ${escapeHtml(stu.name)}${stu.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</div>
+<div class="text-xs text-gray-500 dark:text-gray-400">Reg: <span class="num-display">${escapeHtml(stu.reg_no || '-')}</span>${stu.is_irregular && stu.session ? ' · ' + escapeHtml(stu.session) : ''}</div>
       </div>
       <span class="text-indigo-500">›</span>
     </div>`).join('');
@@ -1666,6 +1642,7 @@ function hideSuggestionBox() {
 }
 
 async function selectStudent(studentId, roll, name, reg) {
+  pickedStudent = { id: studentId, class_roll: roll, name, reg_no: reg };
   hideSuggestionBox();
   document.getElementById('studentRollInput').value = roll;
   const preview = document.getElementById('studentPreview');
@@ -1679,40 +1656,33 @@ async function selectStudent(studentId, roll, name, reg) {
 }
 
 async function findAndSubmit() {
-  const roll = banglaToEnglish(document.getElementById('studentRollInput').value.trim());
+  const roll = banglaToEnglish(document.getElementById('studentRollInput').value.trim()).replace(/[,()*%]/g, '');
   if (!roll) return toastWarning('Enter roll');
   const s = currentPinSession;
   if (!s) return toastError('Session not found, re-enter PIN');
-
+  if (pickedStudent && String(pickedStudent.class_roll) === roll) { showConfirmationScreen(pickedStudent, s); return; }
   let student = null;
-
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + s.session + '_' + s.year);
     if (cached) {
       const all = JSON.parse(cached);
-      student = all.find(st => st.class_roll === roll || st.reg_no === roll);
+      student = all.find(st => String(st.class_roll) === roll || String(st.reg_no) === roll);
     }
   } else {
-    const { data: exactData } = await db.from('students')
-      .select('id, name, class_roll, reg_no')
-      .eq('session', s.session).eq('year', s.year).eq('status', 'active')
-      .or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(1);
-    if (exactData && exactData.length > 0) {
-      student = exactData[0];
-    } else {
-      const { data: partialData } = await db.from('students')
-        .select('id, name, class_roll, reg_no')
-        .eq('session', s.session).eq('year', s.year).eq('status', 'active')
-        .or(`class_roll.ilike.%${roll}%,reg_no.ilike.%${roll}%`).limit(1);
-      if (partialData && partialData.length > 0) student = partialData[0];
+    const cols = 'id, name, class_roll, reg_no, session, is_irregular';
+    const { data: exact } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, roll, false)).limit(5);
+    if (exact && exact.length > 1) { renderSuggestions(exact); toastInfo('Several students match — please pick yours'); return; }
+    if (exact && exact.length === 1) student = exact[0];
+    else {
+      const { data: part } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, roll, true)).limit(2);
+      if (part && part.length === 1) student = part[0];
+      else if (part && part.length > 1) { renderSuggestions(part); toastInfo('Several students match — please pick yours'); return; }
     }
   }
-
   if (!student) {
     document.getElementById('studentPreview').innerHTML = `<p class="text-red-500 text-center text-sm font-bold">❌ No student with roll (${escapeHtml(roll)})</p>`;
     return;
   }
-
   if (navigator.onLine && (!s.teacher_name || !s.course_name)) enrichPinSession(s).catch(() => {});
   showConfirmationScreen(student, s);
 }
@@ -1755,19 +1725,17 @@ function cancelConfirmation() {
 async function confirmAndSubmit() {
   if (!pendingConfirmation) return;
   const { student } = pendingConfirmation;
-
   if (!navigator.onLine) {
-    queueAttendance(currentPinSession.pin, student.class_roll);
+    queueAttendance(currentPinSession.pin, student.class_roll, student.id);
     pendingConfirmation = null;
     showSuccessAndNext(student.name);
     return;
   }
-
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('student_mark_attendance_v2', {
-      p_pin: currentPinSession.pin, p_roll: student.class_roll, p_device_id: deviceId
-    });
+    const { data, error } = student.id
+      ? await db.rpc('student_mark_attendance_v3', { p_pin: currentPinSession.pin, p_student_id: student.id, p_device_id: deviceId })
+      : await db.rpc('student_mark_attendance_v2', { p_pin: currentPinSession.pin, p_roll: student.class_roll, p_device_id: deviceId });
     if (error) {
       document.getElementById('modalContent').innerHTML = `<div class="text-center"><div class="text-6xl mb-3">❌</div><p class="text-red-500 font-bold">Network error</p><button onclick="showAttendanceForm()" class="w-full mt-4 bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
       return;
@@ -1847,6 +1815,7 @@ async function logout() {
   if (scheduledBannerInterval) { clearInterval(scheduledBannerInterval); scheduledBannerInterval = null; }
   const sBanner = document.getElementById('scheduledClassBannerContainer'); if (sBanner) sBanner.innerHTML = '';
   await db.auth.signOut();
+  cohortChoice = {};
   currentTeacher = null; currentStudent = null;
   currentRoutineData = null; currentRoutineContext = null;
   try {
@@ -1866,7 +1835,7 @@ let currentAdminTab = '';
 async function showAdminTab(tab) {
   currentAdminTab = tab;
   const el = document.getElementById('adminContent');
-  const yearOpts = ['1st','2nd','3rd','4th','Preliminary to Masters','Masters Final'].map(y => `<option>${y}</option>`).join('');
+  const yearOpts = yearOptionsHtml();
 
   if (tab === 'manageTeacher') {
     el.innerHTML = '<div class="text-center py-8 text-gray-500">⏳ Loading...</div>';
@@ -1927,7 +1896,13 @@ async function showAdminTab(tab) {
           <input id="acShort" placeholder="Short code (e.g., Macro)" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
           <button onclick="addAcademicCourse()" class="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">Save</button>
         </div>
-        <div class="bg-white dark:bg-gray-800 border-2 border-teal-100 dark:border-teal-800 rounded-xl p-4">
+        <div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl max-w-lg">
+<h4 class="font-bold text-sm mb-2 dark:text-white">📂 Import courses from Excel</h4>
+<p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Uses the category and year selected above. Excel columns: <b>Course Code | Course Name | Short Code</b></p>
+<input type="file" id="courseExcelFile" accept=".xlsx,.xls" class="w-full text-sm mb-2 dark:text-white">
+<button onclick="importCoursesExcel()" class="bg-gradient-to-r from-teal-600 to-emerald-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full shadow-lg">📥 Import</button>
+</div>
+<div class="bg-white dark:bg-gray-800 border-2 border-teal-100 dark:border-teal-800 rounded-xl p-4">
           <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
             <h4 class="font-bold dark:text-white">📋 Course List <span id="acCourseCount" class="text-xs text-gray-400 num-display"></span></h4>
             <select id="acFilterCategory" onchange="renderAcademicCourseList()" class="border-2 rounded-lg p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
@@ -1950,6 +1925,7 @@ async function showAdminTab(tab) {
           <button onclick="showStudentSubTab('addManual')" class="bg-blue-500 text-white px-3 py-2 rounded-lg">✍️ Manual</button>
           <button onclick="showStudentSubTab('list')" class="bg-purple-500 text-white px-3 py-2 rounded-lg">📋 List</button>
           <button onclick="showStudentSubTab('bulkUpdate')" class="bg-orange-500 text-white px-3 py-2 rounded-lg">🔄 Bulk</button>
+<button onclick="showStudentSubTab('promote')" class="bg-teal-600 text-white px-3 py-2 rounded-lg">⬆️ Promote</button>
         </div>
         <div id="studentSubContent"></div>
       </div>`;
@@ -1960,9 +1936,10 @@ async function showAdminTab(tab) {
       ${sessionDatalist}
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white">🔗 Teacher-Course & Routine Mapping</h3>
+<p class="text-xs text-gray-500 dark:text-gray-400">Mapping is by class (year). Session is not needed here.</p>
         <select id="mapTeacher" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">Select teacher</option></select>
-        <input id="mapSession" placeholder="Session" list="sessionOptions" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-        <select id="mapYear" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">Select year</option>${yearOpts}</select>
+        <select id="mapCategory" onchange="mapFillYears()" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">Select category</option><option>Higher Secondary</option><option>Honours</option><option>Masters</option></select>
+<select id="mapYearName" onchange="mapLoadCourses()" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">Select year</option></select>
         <select id="mapCourseSelect" onchange="fillCourseDetails()" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">Select course</option></select>
         <input id="mapCourse" placeholder="Course code" readonly class="w-full border-2 rounded-xl p-3 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600">
         <input id="mapCourseName" placeholder="Course name" readonly class="w-full border-2 rounded-xl p-3 bg-gray-100 dark:bg-gray-600 dark:text-white dark:border-gray-600">
@@ -2007,9 +1984,9 @@ async function showAdminTab(tab) {
         </div>
 
         <div class="bg-purple-50 dark:bg-purple-900/30 border-2 border-purple-200 dark:border-purple-700 p-4 rounded-xl space-y-3">
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div>
-              <label class="block text-xs font-bold mb-1 dark:text-white">Day</label>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+<div>
+<label class="block text-xs font-bold mb-1 dark:text-white">Day</label>
               <select id="rvDay" class="w-full border-2 rounded-xl p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
                 <option value="">All days</option>
                 <option>Sunday</option><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option>
@@ -2021,10 +1998,7 @@ async function showAdminTab(tab) {
                 <option value="">All years</option>${yearOpts}
               </select>
             </div>
-            <div>
-              <label class="block text-xs font-bold mb-1 dark:text-white">Session</label>
-              <input id="rvSession" placeholder="All sessions" list="sessionOptions" class="w-full border-2 rounded-xl p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
-            </div>
+            
             <div>
               <label class="block text-xs font-bold mb-1 dark:text-white">Teacher</label>
               <select id="rvTeacher" class="w-full border-2 rounded-xl p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
@@ -2097,22 +2071,30 @@ async function showAdminTab(tab) {
 // ============================================================
 function dedupeCourses(list) {
   const seen = new Set();
-  const unique = [];
-  (list || []).forEach(c => {
-    const key = `${c.course_code}|${c.session}|${c.year}`;
-    if (!seen.has(key)) { seen.add(key); unique.push(c); }
-  });
-  return unique;
+  return (list || []).filter(c => { const k = `${c.course_code}|${c.year}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
+let mapCoursesCache = [];
 async function loadAcademicCoursesForMap() {
   const { data } = await db.from('courses_new').select('*').order('course_code');
+  mapCoursesCache = data || [];
+  mapLoadCourses();
+}
+function mapFillYears() {
+  const cat = document.getElementById('mapCategory').value;
+  const ySel = document.getElementById('mapYearName');
+  ySel.innerHTML = '<option value="">Select year</option>' + (YEAR_GROUPS[cat] || []).map(y => `<option value="${attrEsc(y[0])}">${escapeHtml(y[0])}</option>`).join('');
+  mapLoadCourses();
+}
+function mapLoadCourses() {
   const sel = document.getElementById('mapCourseSelect');
-  if (sel) {
-    sel.innerHTML = '<option value="">Select course</option>' + 
-      (data || []).map(c => `<option value="${attrEsc(c.course_code)}|${attrEsc(c.course_name)}">${escapeHtml(c.course_code)} - ${escapeHtml(c.course_name)}</option>`).join('') +
-      '<option value="NON_MAJOR">✍️ Other / Non-Major (Manual Entry)</option>';
-  }
+  if (!sel) return;
+  const cat = document.getElementById('mapCategory')?.value, yn = document.getElementById('mapYearName')?.value;
+  const list = (cat && yn) ? mapCoursesCache.filter(c => c.category === cat && c.year_name === yn) : [];
+  sel.innerHTML = '<option value="">' + ((cat && yn) ? (list.length ? 'Select course' : 'No course added for this class (use Academic tab)') : 'Select category and year first') + '</option>' +
+    list.map(c => `<option value="${attrEsc(c.course_code)}|${attrEsc(c.course_name)}">${escapeHtml(c.course_code)} - ${escapeHtml(c.short_code || c.course_name)}</option>`).join('') +
+    '<option value="NON_MAJOR">✍️ Other / Non-Major (Manual Entry)</option>';
+  fillCourseDetails();
 }
 
 function fillCourseDetails() {
@@ -2313,6 +2295,32 @@ async function deleteAcademicCourse(idx) {
   } catch (e) { toastError(e.message || 'Delete failed'); } finally { hideGlobalLoader(); }
 }
 
+async function importCoursesExcel() {
+  const file = document.getElementById('courseExcelFile')?.files[0];
+  if (!file) return toastWarning('Select Excel file');
+  const cat = document.getElementById('acCategory').value, year = document.getElementById('acYear').value;
+  if (!year) return toastWarning('Select category and year');
+  showGlobalLoader();
+  try {
+    const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }).slice(1);
+    const have = new Set(acCoursesCache.filter(c => c.category === cat && c.year_name === year).map(c => String(c.course_code).toLowerCase()));
+    const seen = new Set(), add = [];
+    rows.forEach(r => {
+      const code = String(r[0] ?? '').trim(), name = String(r[1] ?? '').trim(), short = String(r[2] ?? '').trim();
+      if (!code || !name || have.has(code.toLowerCase()) || seen.has(code.toLowerCase())) return;
+      seen.add(code.toLowerCase());
+      add.push({ category: cat, year_name: year, course_code: code, course_name: name, short_code: short });
+    });
+    if (!add.length) return toastWarning('Nothing new to import');
+    const { error } = await db.from('courses_new').insert(add);
+    if (error) throw error;
+    invalidateCourseInfo();
+    toastSuccess(`${add.length} courses added`);
+    document.getElementById('courseExcelFile').value = '';
+    loadAcademicCourseList();
+  } catch (e) { toastError(e.message || 'Import failed'); } finally { hideGlobalLoader(); }
+}
 async function addAcademicCourse() {
   const cat = document.getElementById('acCategory').value;
   const year = document.getElementById('acYear').value;
@@ -2345,15 +2353,14 @@ function slotChips(slots) {
 }
 function normKey(v) { return String(v ?? '').trim().toLowerCase(); }
 
-async function checkScheduleConflict({ teacherId, courseCode, session, year, day, time, room, excludeId }) {
+async function checkScheduleConflict({ teacherId, courseCode, year, day, time, room, excludeId }) {
   const { data, error } = await db.from('teacher_courses').select('*').eq('class_day', day).eq('time_slot', time);
   if (error) throw error;
   const rows = (data || []).filter(r => !excludeId || String(r.id) !== String(excludeId));
   const tRow = rows.find(r => String(r.teacher_id) === String(teacherId));
-  const cRow = rows.find(r => normKey(r.course_code) === normKey(courseCode) && normKey(r.session) === normKey(session) && normKey(r.year) === normKey(year));
+  const cRow = rows.find(r => normKey(r.course_code) === normKey(courseCode) && normKey(r.year) === normKey(year));
   const rRow = room ? rows.find(r => r.room && normKey(r.room) === normKey(room)) : null;
   if (!tRow && !cRow && !rRow) return [];
-
   await getCourseInfoMap();
   const ids = [...new Set([tRow, cRow, rRow].filter(Boolean).map(r => r.teacher_id).filter(Boolean))];
   const nameOf = {};
@@ -2396,9 +2403,9 @@ function showRoomDbNotice() {
   });
 }
 
-async function sameCourseRows({ teacher_id, session, year, course_code }) {
+async function sameCourseRows({ teacher_id, year, course_code }) {
   const { data, error } = await db.from('teacher_courses').select('id, class_day, time_slot')
-    .eq('teacher_id', teacher_id).eq('session', session).eq('year', year).eq('course_code', course_code);
+    .eq('teacher_id', teacher_id).eq('year', year).eq('course_code', course_code);
   if (error) throw error;
   return data || [];
 }
@@ -2413,46 +2420,40 @@ function showMultiDayDbNotice() {
 
 async function saveMapping() {
   const teacher_id = document.getElementById('mapTeacher').value;
-  const session = document.getElementById('mapSession').value.trim();
-  const year = document.getElementById('mapYear').value;
+  const year = yearCodeOf(document.getElementById('mapCategory').value, document.getElementById('mapYearName').value);
   const course_code = document.getElementById('mapCourse').value.trim().toUpperCase();
-  const course_name = document.getElementById('mapCourseName').value.trim();
   const class_day = document.getElementById('mapDay').value;
   const time_slot = document.getElementById('mapTime').value;
   const room = (document.getElementById('mapRoom')?.value || '').trim().toUpperCase();
   if (room && !ROOM_RE.test(room)) return toastWarning('Room: letters, numbers, space, - or / only (e.g. ECO-1, 101)');
-  if (!teacher_id || !session || !year || !course_code) return toastWarning('Enter teacher, session, year, course');
+  if (!teacher_id || !year || !course_code) return toastWarning('Select teacher, category, year and course');
   if (!!class_day !== !!time_slot) return toastWarning('Select both day and time (or leave both empty)');
-
   showGlobalLoader();
   try {
     if (class_day) {
       let conflicts;
-      try { conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: course_code, session, year, day: class_day, time: time_slot, room }); }
+      try { conflicts = await checkScheduleConflict({ teacherId: teacher_id, courseCode: course_code, year, day: class_day, time: time_slot, room }); }
       catch (e) { return toastError('Conflict check failed: ' + (e.message || 'network issue')); }
       if (conflicts.length) { hideGlobalLoader(); return showConflictAlert(conflicts, class_day, time_slot); }
     }
-    const rows = await sameCourseRows({ teacher_id, session, year, course_code });
+    const rows = await sameCourseRows({ teacher_id, year, course_code });
     if (class_day && rows.some(r => r.class_day === class_day)) return toastWarning(`This course already has a class on ${class_day}`);
     if (!class_day && rows.length) return toastWarning('This mapping already exists');
-
     const blank = class_day ? rows.find(r => !r.class_day) : null;
     if (blank) {
       const { error } = await db.from('teacher_courses').update({ class_day, time_slot, ...(room ? { room } : {}) }).eq('id', blank.id);
       if (error) { if (isRoomColumnError(error)) { hideGlobalLoader(); return showRoomDbNotice(); } return toastError(error.message); }
       toastSuccess('Day & time added to the existing mapping');
     } else {
-      const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session, year, course_code, class_day: class_day || null, time_slot: time_slot || null, ...(room ? { room } : {}) });
+      const { error: e1 } = await db.from('teacher_courses').insert({ teacher_id, session: 'ALL', year, course_code, class_day: class_day || null, time_slot: time_slot || null, ...(room ? { room } : {}) });
       if (e1) {
         if (isRoomColumnError(e1)) { hideGlobalLoader(); return showRoomDbNotice(); }
-        if (/teacher_courses_slot_/.test(e1.message || '')) { return toastWarning('Teacher, course or room is already booked at this day & time'); }
+        if (/teacher_courses_slot_/.test(e1.message || '')) return toastWarning('Teacher, course or room is already booked at this day & time');
         if (e1.code === '23505' || /duplicate/i.test(e1.message || '')) { hideGlobalLoader(); return showMultiDayDbNotice(); }
         return toastError(e1.message);
       }
       toastSuccess('Mapping & routine saved');
     }
-    const { error: e2 } = await db.from('courses').upsert({ session, year, course_code, course_name: course_name || null }, { onConflict: 'session,year,course_code' });
-    if (e2) console.error(e2);
     document.getElementById('mapCourseSelect').value = '';
     const rmEl = document.getElementById('mapRoom'); if (rmEl) rmEl.value = '';
     fillCourseDetails();
@@ -2497,7 +2498,7 @@ function renderMappings() {
       ${items.map(m => `<div class="map-row">
         <div class="min-w-0 flex-1 dark:text-white">
           <b class="num-display text-sm break-words">${escapeHtml(label(m))}</b>
-          <div>${m.class_day !== 'ZZ' && m.time_slot ? `<span class="chip chip-day">${escapeHtml(m.class_day)}</span><span class="chip chip-slot num-display">${escapeHtml(m.time_slot)}</span>${m.room ? `<span class="chip chip-day">🚪 ${escapeHtml(m.room)}</span>` : ''}` : '<span class="chip chip-none">No schedule</span>'}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(m.session)} · ${escapeHtml(m.year)}</span></div>
+          <div>${m.class_day !== 'ZZ' && m.time_slot ? `<span class="chip chip-day">${escapeHtml(m.class_day)}</span><span class="chip chip-slot num-display">${escapeHtml(m.time_slot)}</span>${m.room ? `<span class="chip chip-day">🚪 ${escapeHtml(m.room)}</span>` : ''}` : '<span class="chip chip-none">No schedule</span>'}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(yearLabel(m.year))}</span></div>
         </div>
         <div class="flex gap-1.5 shrink-0">
           <button onclick="editMapping('${escapeHtml(m.id)}')" class="bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white px-2.5 py-1.5 rounded-lg text-xs btn-pop" title="Edit">✏️</button>
@@ -2519,7 +2520,7 @@ async function editMapping(id) {
   const st = 'width:100%;padding:10px;border:2px solid #e5e7eb;border-radius:12px;margin-bottom:10px;font-size:14px';
   const r = await Swal.fire({
     title: 'Edit mapping',
-    html: `<div style="text-align:left"><p style="font-size:13px;color:#6b7280;margin-bottom:10px"><b>${escapeHtml(courseLabel(m.course_code, mappingNames[`${m.session}|${m.year}|${m.course_code}`]))}</b> · ${escapeHtml(m.session)} · ${escapeHtml(m.year)}</p>
+    html: `<div style="text-align:left"><p style="font-size:13px;color:#6b7280;margin-bottom:10px"><b>${escapeHtml(courseLabel(m.course_code, mappingNames[`${m.session}|${m.year}|${m.course_code}`]))}</b> · ${escapeHtml(yearLabel(m.year))}</p>
       <label style="font-size:12px;font-weight:700">Teacher</label><select id="emTeacher" style="${st}">${tOpts}</select>
       <label style="font-size:12px;font-weight:700">Day</label><select id="emDay" style="${st}">${dOpts}</select>
       <label style="font-size:12px;font-weight:700">Time</label><select id="emTime" style="${st}">${tmOpts}</select>
@@ -2718,7 +2719,7 @@ async function toggleTeacherStatus(id, currentStatus) {
 // ============================================================
 function showStudentSubTab(subTab) {
   const el = document.getElementById('studentSubContent');
-  const yearOpts = ['1st','2nd','3rd','4th','Preliminary to Masters','Masters Final'].map(y => `<option>${y}</option>`).join('');
+  const yearOpts = yearOptionsHtml();
 
   if (subTab === 'addExcel') {
     el.innerHTML = `
@@ -2774,7 +2775,21 @@ function showStudentSubTab(subTab) {
       </div>`;
     loadStudentList();
   }
-  else if (subTab === 'bulkUpdate') {
+  else if (subTab === 'promote') {
+el.innerHTML = `
+<div class="space-y-3 max-w-2xl">
+<div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl">
+<h4 class="font-bold text-sm mb-2 dark:text-white">⬆️ Promote a batch to the next class</h4>
+<p class="text-xs text-gray-600 dark:text-gray-300 mb-3">Regular students move up. <b>Irregular (I-roll)</b> students stay in their class. Tick students who did not sit the final exam to keep them in the same class (they become irregular with an I- roll). The last class of each course becomes <b>Graduated</b>.</p>
+<div class="flex gap-2 flex-wrap">
+<input id="proSession" placeholder="Session (e.g. 2024-25)" list="sessionOptions" class="border-2 rounded-xl p-3 flex-1 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+<button onclick="loadPromotePreview()" class="bg-teal-600 text-white px-5 py-3 rounded-xl font-bold btn-pop">🔍 Load</button>
+</div>
+</div>
+<div id="promoteArea"></div>
+</div>`;
+}
+else if (subTab === 'bulkUpdate') {
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <div class="bg-orange-50 dark:bg-orange-900/30 p-4 rounded-xl">
@@ -2798,6 +2813,59 @@ function downloadExcelTemplate() {
 }
 
 let pendingExcelStudents = null;
+let promoteState = null;
+async function loadPromotePreview() {
+  const session = document.getElementById('proSession').value.trim();
+  const area = document.getElementById('promoteArea');
+  const err = sessionError(session);
+  if (err) { area.innerHTML = `<p class="text-red-500 text-center py-3">${escapeHtml(err)}</p>`; return; }
+  area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
+  try {
+    const all = await fetchAll((a, b) => db.from('students').select('id, class_roll, name, year, status, is_irregular').eq('session', session).eq('status', 'active').range(a, b));
+    if (!all.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No active students in this session</p>'; return; }
+    const years = ALL_YEAR_CODES.filter(y => all.some(s => s.year === y));
+    promoteState = { session, all, year: years[years.length - 1] };
+    area.innerHTML = `<div class="bg-white dark:bg-gray-700 border-2 border-teal-200 dark:border-teal-700 rounded-xl p-4 space-y-3">
+      <div><label class="block text-xs font-bold mb-1 dark:text-white">Current class</label>
+      <select id="proYear" onchange="renderPromoteList(this.value)" class="w-full border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500">${years.map(y => `<option value="${attrEsc(y)}"${y === promoteState.year ? ' selected' : ''}>${escapeHtml(yearLabel(y))} (${all.filter(s => s.year === y).length})</option>`).join('')}</select></div>
+      <div id="promoteList"></div></div>`;
+    renderPromoteList(promoteState.year);
+  } catch (e) { area.innerHTML = `<p class="text-red-500 text-center py-3">❌ ${escapeHtml(e.message)}</p>`; }
+}
+function renderPromoteList(year) {
+  const st = promoteState; if (!st) return;
+  st.year = year;
+  const list = sortStudents(st.all.filter(s => s.year === year));
+  const next = nextYearOf(year);
+  const reg = list.filter(s => !s.is_irregular), irr = list.filter(s => s.is_irregular);
+  document.getElementById('promoteList').innerHTML = `
+    <div class="bg-teal-50 dark:bg-teal-900/30 rounded-xl p-3 text-sm dark:text-white">
+      ${next ? `<b>${escapeHtml(yearLabel(year))}</b> → <b>${escapeHtml(yearLabel(next))}</b>` : `<b>${escapeHtml(yearLabel(year))}</b> is the last class: regular students become <b>Graduated</b>`}
+      · Regular: <b class="num-display">${reg.length}</b> · Irregular (stay): <b class="num-display">${irr.length}</b>
+    </div>
+    <p class="text-xs text-gray-500 dark:text-gray-400 my-2">✅ Tick = <b>stay in this class</b> (did not sit the final exam)</p>
+    <div class="max-h-80 overflow-y-auto space-y-1">
+      ${list.map(s => s.is_irregular
+        ? `<div class="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg text-sm dark:text-white"><span class="chip chip-none">Irregular</span><span class="num-display">${escapeHtml(s.class_roll)}</span> ${escapeHtml(s.name)}<span class="ml-auto text-xs text-gray-400">stays</span></div>`
+        : `<label class="flex items-center gap-2 bg-gray-50 dark:bg-gray-600 px-3 py-2 rounded-lg text-sm dark:text-white cursor-pointer"><input type="checkbox" class="pro-stay" value="${attrEsc(s.id)}"><span class="num-display">${escapeHtml(s.class_roll)}</span> ${escapeHtml(s.name)}</label>`).join('')}
+    </div>
+    <button onclick="runPromote()" class="mt-3 w-full bg-gradient-to-r from-teal-600 to-emerald-600 text-white py-3 rounded-xl font-bold btn-pop shadow-lg">⬆️ Promote now</button>`;
+}
+async function runPromote() {
+  const st = promoteState; if (!st) return;
+  const stay = [...document.querySelectorAll('.pro-stay:checked')].map(c => c.value);
+  const next = nextYearOf(st.year);
+  const ok = await confirmAction('Promote this batch?', `${st.session}: ${yearLabel(st.year)} ${next ? '→ ' + yearLabel(next) : '→ Graduated'}. ${stay.length} student(s) will stay as irregular. This changes student records.`, 'Yes, promote', '#0d9488');
+  if (!ok) return;
+  showGlobalLoader();
+  try {
+    const { data, error } = await db.rpc('admin_promote_students', { p_session: st.session, p_from_year: st.year, p_stay_ids: stay });
+    if (error || !data || !data.ok) return toastError((data && data.message) || (error && error.message) || 'Promote failed');
+    toastSuccess(data.to_year ? `${data.promoted} moved up, ${data.new_stay} stayed` : `${data.graduated} graduated, ${data.new_stay} stayed`);
+    cohortChoice = {};
+    loadPromotePreview();
+  } finally { hideGlobalLoader(); }
+}
 async function previewExcel() {
   const file = document.getElementById('excelFile')?.files[0];
   if (!file) return toastWarning('Select file');
@@ -2806,6 +2874,7 @@ async function previewExcel() {
   const session = document.getElementById('asSession').value.trim();
   const year = document.getElementById('asYear').value;
   if (!session) { area.innerHTML = '<p class="text-red-500 text-center">❌ Enter session</p>'; return; }
+const sErr = sessionError(session); if (sErr) { area.innerHTML = `<p class="text-red-500 text-center">❌ ${escapeHtml(sErr)}</p>`; return; }
   const reader = new FileReader();
   reader.onload = async (e) => {
     try {
@@ -2823,7 +2892,7 @@ async function previewExcel() {
         if (sR.has(roll)) { dup.push({ row: n, roll }); return; }
         if (reg && sG.has(reg)) { dup.push({ row: n, roll, reg }); return; }
         sR.add(roll); if (reg) sG.add(reg);
-        valid.push({ session, year, class_roll: roll, reg_no: reg || null, name, status: 'active' });
+        valid.push({ session, year, class_roll: roll, reg_no: reg || null, name, status: 'active', is_irregular: /^I-/i.test(roll) });
       });
       let ex = [];
       if (valid.length) {
@@ -2874,9 +2943,10 @@ async function addStudentManual() {
   const address = document.getElementById('msAddress').value.trim();
   const status = document.getElementById('manualStatus');
   if (!session || !roll || !name) { status.innerHTML = '<p class="text-red-500">❌ Enter session, roll, name</p>'; return; }
+const sErr = sessionError(session); if (sErr) { status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(sErr)}</p>`; return; }
   const { error } = await db.from('students').insert({
-    session, year, class_roll: roll, reg_no: reg || null, name, phone: phone || null, guardian_name: guardian || null, guardian_phone: gPhone || null, address: address || null, status: 'active'
-  });
+    session, year, class_roll: roll, reg_no: reg || null, name, phone: phone || null, guardian_name: guardian || null, guardian_phone: gPhone || null, address: address || null, status: 'active', is_irregular: /^I-/i.test(roll)
+});
   if (error) {
     if (error.message.includes('duplicate')) status.innerHTML = '<p class="text-amber-600">⚠️ Roll already exists</p>';
     else status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
@@ -2894,7 +2964,8 @@ async function bulkUpdateStudents() {
   const session = document.getElementById('buSession').value.trim();
   const year = document.getElementById('buYear').value;
   if (!session) { status.innerHTML = '<p class="text-red-500">❌ Enter session</p>'; return; }
-  status.innerHTML = '<p class="text-gray-500">⏳...</p>';
+const sErr = sessionError(session); if (sErr) { status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(sErr)}</p>`; return; }
+status.innerHTML = '<p class="text-gray-500">⏳...</p>';
   const reader = new FileReader();
   reader.onload = async (e) => {
     try {
@@ -2916,7 +2987,7 @@ async function loadStudentList() {
   const year = document.getElementById('lstYear')?.value;
   const status = document.getElementById('lstStatus')?.value;
   const search = document.getElementById('lstSearch')?.value.trim().toLowerCase();
-  let q = db.from('students').select('id, session, year, class_roll, reg_no, name, status, phone');
+  let q = db.from('students').select('id, session, year, class_roll, reg_no, name, status, phone, is_irregular');
   if (session) q = q.eq('session', session);
   if (year) q = q.eq('year', year);
   if (status) q = q.eq('status', status);
@@ -2933,8 +3004,8 @@ async function loadStudentList() {
       ${students.map(s => `
         <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-xl flex justify-between items-center gap-2">
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2"><span>${icons[s.status] || '✅'}</span><b class="text-sm dark:text-white">${escapeHtml(s.name)}</b></div>
-            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">Roll: <span class="num-display">${escapeHtml(s.class_roll)}</span> · Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span> · ${escapeHtml(s.session)} · ${escapeHtml(s.year)}</p>
+            <div class="flex items-center gap-2"><span>${icons[s.status] || '✅'}</span><b class="text-sm dark:text-white">${escapeHtml(s.name)}</b>${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">Roll: <span class="num-display">${escapeHtml(s.class_roll)}</span> · Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span> · ${escapeHtml(s.session)} · ${escapeHtml(yearLabel(s.year))}</p>
           </div>
           <button class="student-action-btn bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-xs" data-id="${escapeHtml(s.id)}">⚙️</button>
         </div>`).join('')}
@@ -2982,8 +3053,11 @@ function editStudent(stu) {
     <input id="edGuardian" value="${escapeHtml(stu.guardian_name || '')}" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
     <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Guardian Phone</label>
     <input id="edGuardianPhone" value="${escapeHtml(stu.guardian_phone || '')}" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Address</label>
-    <textarea id="edAddress" rows="2" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">${escapeHtml(stu.address || '')}</textarea>
+    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Class (year)</label>
+<select id="edYear" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">${yearOptionsHtml(stu.year)}</select>
+<label class="flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-300 mb-2"><input type="checkbox" id="edIrregular" ${stu.is_irregular ? 'checked' : ''}> Irregular student (stays in this class)</label>
+<label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Address</label>
+<textarea id="edAddress" rows="2" class="w-full border-2 rounded-xl p-3 mb-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">${escapeHtml(stu.address || '')}</textarea>
     <div id="editStudentStatus" class="text-sm mb-3"></div>
     <button id="saveStudentEditBtn" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">💾 Save</button>
     <button onclick="closeModal()" class="w-full mt-2 text-gray-500 dark:text-gray-400 py-2 text-sm">Cancel</button>
@@ -2999,7 +3073,7 @@ function editStudent(stu) {
     const st = document.getElementById('editStudentStatus');
     if (!roll || !name) { st.innerHTML = '<p class="text-red-500">❌ Enter roll and name</p>'; return; }
     st.innerHTML = '<p class="text-gray-500">⏳...</p>';
-    const { error } = await db.from('students').update({ class_roll: roll, reg_no: reg || null, name, phone: phone || null, guardian_name: guardian || null, guardian_phone: gPhone || null, address: address || null }).eq('id', stu.id);
+    const { error } = await db.from('students').update({ class_roll: roll, reg_no: reg || null, name, phone: phone || null, guardian_name: guardian || null, guardian_phone: gPhone || null, address: address || null, year: document.getElementById('edYear')?.value || stu.year, is_irregular: !!document.getElementById('edIrregular')?.checked }).eq('id', stu.id);
     if (error) {
       if (error.message.includes('duplicate')) st.innerHTML = '<p class="text-red-500">❌ Roll belongs to another student</p>';
       else st.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(error.message)}</p>`;
@@ -3044,16 +3118,20 @@ async function deleteStudentPermanently(id, name) {
 // ============================================================
 function showReportTab(tab) {
   const el = document.getElementById('reportContent');
-  const yearOpts = ['1st','2nd','3rd','4th','Preliminary to Masters','Masters Final'].map(y => `<option>${y}</option>`).join('');
+  const yearOpts = yearOptionsHtml();
+  const inp = 'border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500';
+  const yr = id => `<select id="${id}" class="${inp}"><option value="">Class</option>${yearOpts}</select>`;
+  const box = 'bg-gray-50 dark:bg-gray-700 p-4 rounded-xl';
+  const btn = (fn, label, c) => `<button onclick="${fn}" class="bg-${c}-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">${label}</button>`;
   if (tab === 'attendance') {
-    el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="arSession" placeholder="Session" list="sessionOptions" class="border-2 rounded-xl p-2 flex-1 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="arYear" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button><button onclick="exportAttendancePDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button></div></div><div id="attendanceReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="arSession" placeholder="Session" list="sessionOptions" class="${inp} flex-1">${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><label class="flex items-center gap-2 text-xs font-semibold mb-3 dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
   } else if (tab === 'exam') {
-    el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="erSession" placeholder="Session" list="sessionOptions" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="erYear" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><input id="erCourse" placeholder="Course" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportExamExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊</button><button onclick="exportExamPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄</button></div></div><div id="examReportArea"></div></div>`;
-  } else if (tab === 'examwise') {
-    el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="erxSession" placeholder="Session" list="sessionOptions" onchange="erxFillExams()" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="erxYear" onchange="erxFillExams()" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><select id="erxExam" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Exam</option></select><button onclick="loadExamwiseReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportExamwiseExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊 Excel</button><button onclick="exportExamwisePDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄 PDF</button></div></div><div id="examwiseReportArea"></div></div>`;
-    erxFillExams();
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="erSession" placeholder="Session" list="sessionOptions" class="${inp}">${yr('erYear')}<input id="erCourse" placeholder="Course code" class="${inp}"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamExcel()', '📊 Excel', 'emerald')}${btn('exportExamPDF()', '📄 PDF', 'red')}</div></div><div id="examReportArea"></div></div>`;
   } else if (tab === 'individual') {
-    el.innerHTML = `<div class="space-y-3"><div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl"><div class="flex gap-2 flex-wrap mb-3"><input id="irSession" placeholder="Session" list="sessionOptions" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><select id="irYear" class="border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">Year</option>${yearOpts}</select><input id="irRoll" placeholder="Roll / Reg" class="border-2 rounded-xl p-2 flex-1 dark:bg-gray-600 dark:text-white dark:border-gray-500"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2"><button onclick="exportIndividualExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📊</button><button onclick="exportIndividualPDF()" class="bg-red-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">📄</button></div></div><div id="individualReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="irSession" placeholder="Session" list="sessionOptions" class="${inp}">${yr('irYear')}<input id="irRoll" placeholder="Roll / Reg" class="${inp} flex-1"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportIndividualExcel()', '📊 Excel', 'emerald')}${btn('exportIndividualPDF()', '📄 PDF', 'red')}</div></div><div id="individualReportArea"></div></div>`;
+  } else if (tab === 'examwise') {
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="erxSession" placeholder="Session" list="sessionOptions" onchange="erxFillExams()" class="${inp}">${yr('erxYear').replace('<select ', '<select onchange="erxFillExams()" ')}<select id="erxExam" class="${inp}"><option value="">Exam</option></select><button onclick="loadExamwiseReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamwiseExcel()', '📊 Excel', 'emerald')}${btn('exportExamwisePDF()', '📄 PDF', 'red')}</div></div><div id="examwiseReportArea"></div></div>`;
+    erxFillExams();
   }
 }
 
@@ -3062,81 +3140,206 @@ async function loadAttendanceReport() {
   const session = document.getElementById('arSession').value.trim();
   const year = document.getElementById('arYear').value;
   const area = document.getElementById('attendanceReportArea');
-  if (!session || !year) { area.innerHTML = '<p class="text-red-500 text-center py-4">Enter session and year</p>'; return; }
+  currentAttendanceData = null;
+  if (!session || !year) { area.innerHTML = '<p class="text-red-500 text-center py-4">Enter session and class</p>'; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const { data: sR } = await db.from('students').select('id, class_roll, reg_no, name').eq('session', session).eq('year', year).eq('status', 'active');
-    const students = sortStudents(sR || []);
-    if (!students.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No students</p>'; return; }
-    const { data: courses } = await db.from('courses').select('*').eq('session', session).eq('year', year).order('course_code');
-    if (!courses || !courses.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No courses</p>'; return; }
-    const { data: sessions } = await db.from('attendance_sessions').select('id, course_code').eq('session', session).eq('year', year);
-    const sIds = sessions?.map(s => s.id) || [];
-    let records = [];
-    if (sIds.length) {
-      const { data: recs } = await db.from('attendance_records').select('student_id, session_id, status').in('session_id', sIds);
-      records = recs || [];
-    }
-    const sMap = {};
-    sessions?.forEach(s => { sMap[s.id] = s.course_code; });
-    const report = students.map(stu => {
-      const cc = {};
-      courses.forEach(c => { cc[c.course_code] = 0; });
-      records.filter(r => r.student_id === stu.id).forEach(r => {
-        const code = sMap[r.session_id];
-        if (code && (r.status === 'present' || r.status === 'late')) cc[code] = (cc[code] || 0) + 1;
-      });
-      const total = Object.values(cc).reduce((a, b) => a + b, 0);
-      return { class_roll: stu.class_roll, reg_no: stu.reg_no || '', name: stu.name, courseCounts: cc, total };
-    });
+    const sessions = await fetchAll((a, b) => db.from('attendance_sessions').select('id, course_code').eq('session', session).eq('year', year).range(a, b));
+    if (!sessions.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No classes held for this session and class</p>'; return; }
+    const records = await fetchByIds('attendance_records', 'student_id, session_id, status', 'session_id', sessions.map(s => s.id));
+    const held = {}, codeOf = {};
+    sessions.forEach(s => { held[s.course_code] = (held[s.course_code] || 0) + 1; codeOf[s.id] = s.course_code; });
+    const courses = Object.keys(held).sort();
     await getCourseInfoMap();
-    const dH = courses.map(c => courseLabel(c.course_code, c.course_name));
-    currentAttendanceData = { session, year, courses, displayHeaders: dH, report };
-    area.innerHTML = `
-      <p class="text-sm text-gray-600 dark:text-gray-300 mb-2"><b>Session:</b> ${escapeHtml(session)} | <b>Year:</b> ${escapeHtml(year)} | <b>Students:</b> <span class="num-display">${report.length}</span> | <b>Courses:</b> <span class="num-display">${courses.length}</span></p>
-      <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
-        <table class="min-w-full text-xs border dark:border-gray-600">
-          <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0">
-            <tr><th class="p-2 border dark:border-gray-600 dark:text-white num-cell" rowspan="2">Roll</th><th class="p-2 border dark:border-gray-600 dark:text-white num-cell" rowspan="2">Reg No.</th><th class="p-2 border dark:border-gray-600 dark:text-white text-left" rowspan="2">Student Name</th><th class="p-2 border dark:border-gray-600 dark:text-white bg-indigo-100 dark:bg-indigo-900" colspan="${courses.length}">Course</th><th class="p-2 border dark:border-gray-600 dark:text-white bg-amber-100 dark:bg-amber-900 num-cell" rowspan="2">Total</th></tr>
-            <tr class="bg-indigo-50 dark:bg-indigo-900/50">${dH.map(h => `<th class="p-2 border dark:border-gray-600 dark:text-white num-display">${escapeHtml(h)}</th>`).join('')}</tr>
-          </thead>
-          <tbody>
-            ${report.map(r => `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(r.class_roll)}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(r.reg_no)}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.name)}</td>${courses.map(c => `<td class="p-2 border dark:border-gray-600 text-center num-cell">${r.courseCounts[c.course_code] || 0}</td>`).join('')}<td class="p-2 border dark:border-gray-600 text-center font-bold bg-amber-50 dark:bg-amber-900/30 num-cell">${r.total}</td></tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
+    const by = {};
+    records.forEach(r => {
+      if (r.status !== 'present' && r.status !== 'late') return;
+      const c = codeOf[r.session_id];
+      (by[r.student_id] = by[r.student_id] || {})[c] = ((by[r.student_id] || {})[c] || 0) + 1;
+    });
+    const students = await cohortStudents(session, records.map(r => r.student_id));
+    const totalHeld = courses.reduce((t, c) => t + held[c], 0);
+    const report = students.filter(s => s.status === 'active' || by[s.id]).map(stu => {
+      const cc = by[stu.id] || {};
+      const total = courses.reduce((t, c) => t + (cc[c] || 0), 0);
+      return { class_roll: stu.class_roll, reg_no: stu.reg_no || '', name: stu.name, irregular: !!stu.is_irregular, courseCounts: cc, total, pct: pctOf(total, totalHeld) };
+    });
+    currentAttendanceData = { session, year, courses, displayHeaders: courses.map(c => courseLabel(c)), held, totalHeld, report };
+    renderAttendanceReport();
   } catch (err) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`; }
+}
+function attendanceRowsShown() {
+  const d = currentAttendanceData; if (!d) return [];
+  return document.getElementById('arLow')?.checked ? d.report.filter(r => r.pct < PASS_PCT) : d.report;
+}
+function renderAttendanceReport() {
+  const d = currentAttendanceData, area = document.getElementById('attendanceReportArea');
+  if (!d || !area) return;
+  const rows = attendanceRowsShown();
+  const th = 'p-2 border dark:border-gray-600 dark:text-white', td = 'p-2 border dark:border-gray-600 text-center num-cell';
+  area.innerHTML = `
+    <p class="text-sm text-gray-600 dark:text-gray-300 mb-2"><b>Session:</b> ${escapeHtml(d.session)} | <b>Class:</b> ${escapeHtml(yearLabel(d.year))} | <b>Students:</b> <span class="num-display">${rows.length}</span> | <b>Classes held:</b> <span class="num-display">${d.totalHeld}</span> | <span class="text-red-600 font-bold">Red = below ${PASS_PCT}%</span></p>
+    <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+    <table class="min-w-full text-xs border dark:border-gray-600">
+    <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0">
+      <tr><th class="${th}" rowspan="2">Roll</th><th class="${th}" rowspan="2">Reg No.</th><th class="${th} text-left" rowspan="2">Student Name</th><th class="${th} bg-indigo-100 dark:bg-indigo-900" colspan="${d.courses.length}">Course (classes attended)</th><th class="${th} bg-amber-100 dark:bg-amber-900" rowspan="2">Total</th><th class="${th} bg-amber-100 dark:bg-amber-900" rowspan="2">%</th></tr>
+      <tr class="bg-indigo-50 dark:bg-indigo-900/50">${d.displayHeaders.map(h => `<th class="${th} num-display">${escapeHtml(h)}</th>`).join('')}</tr>
+      <tr class="bg-gray-50 dark:bg-gray-600"><td colspan="3" class="${th} text-right font-bold">Classes held</td>${d.courses.map(c => `<td class="${td} font-bold">${d.held[c]}</td>`).join('')}<td class="${td} font-bold">${d.totalHeld}</td><td class="${td}">—</td></tr>
+    </thead>
+    <tbody>${rows.map(r => { const low = r.pct < PASS_PCT; return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="${td}">${escapeHtml(r.class_roll)}</td><td class="${td}">${escapeHtml(r.reg_no)}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.name)}${r.irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</td>${d.courses.map(c => `<td class="${td}">${r.courseCounts[c] || 0}</td>`).join('')}<td class="${td} font-bold">${r.total}</td><td class="${td} font-bold ${low ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}">${r.pct.toFixed(1)}%</td></tr>`; }).join('') || `<tr><td colspan="${d.courses.length + 5}" class="text-center py-4 text-gray-400">No students</td></tr>`}</tbody>
+    </table></div>`;
 }
 
 async function exportAttendanceExcel() {
   if (!currentAttendanceData) return toastWarning('Load report first');
-  const { session, year, courses, displayHeaders, report } = currentAttendanceData;
-  const row1 = ['', '', '', 'Course', ...Array(courses.length - 1).fill(''), 'Total'];
-  const row2 = ['Roll', 'Reg No.', 'Student Name', ...displayHeaders, 'Total'];
-  const data = [row1, row2];
-  report.forEach(r => data.push([r.class_roll, r.reg_no, r.name, ...courses.map(c => r.courseCounts[c.course_code] || 0), r.total]));
+  const { session, year, courses, displayHeaders, held, totalHeld } = currentAttendanceData;
+  const rows = attendanceRowsShown();
+  const data = [
+    ['AMC Economics — Attendance Report'], [`Session: ${session} | Class: ${yearLabel(year)}`], [],
+    ['', '', '', 'Course (classes attended)', ...Array(Math.max(courses.length - 1, 0)).fill(''), 'Total', '%', 'Remark'],
+    ['Roll', 'Reg No.', 'Student Name', ...displayHeaders, 'Total', '%', 'Remark'],
+    ['', '', 'Classes held', ...courses.map(c => held[c]), totalHeld, '', '']
+  ];
+  rows.forEach(r => data.push([r.class_roll, r.reg_no, r.name + (r.irregular ? ' (Irregular)' : ''), ...courses.map(c => r.courseCounts[c] || 0), r.total, Number(r.pct.toFixed(1)), r.pct < PASS_PCT ? `LOW (<${PASS_PCT}%)` : '']));
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [{ wch: 6 }, { wch: 15 }, { wch: 28 }, ...courses.map(() => ({ wch: 12 })), { wch: 12 }];
-  ws['!merges'] = [{ s: { r: 0, c: 3 }, e: { r: 0, c: 3 + courses.length - 1 } }];
+  ws['!cols'] = [{ wch: 8 }, { wch: 15 }, { wch: 28 }, ...courses.map(() => ({ wch: 12 })), { wch: 8 }, { wch: 8 }, { wch: 12 }];
+  ws['!merges'] = [{ s: { r: 3, c: 3 }, e: { r: 3, c: 3 + Math.max(courses.length - 1, 0) } }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-  XLSX.writeFile(wb, `Attendance_${session}_${year}.xlsx`);
+  XLSX.writeFile(wb, `Attendance_${session}_${year.replace(/\W+/g, '_')}.xlsx`);
 }
 
 async function exportAttendancePDF() {
   if (!currentAttendanceData) return toastWarning('Load report first');
-  const { session, year, courses, displayHeaders, report } = currentAttendanceData;
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text('AMC Economics - Attendance Report', 14, 15);
-  doc.setFontSize(10); doc.text(`Session: ${session} | Year: ${year}`, 14, 22);
-  doc.autoTable({
-    head: [[{ content: 'Roll', rowSpan: 2, styles: { valign: 'middle' } }, { content: 'Reg No.', rowSpan: 2, styles: { valign: 'middle' } }, { content: 'Student Name', rowSpan: 2, styles: { valign: 'middle' } }, { content: 'Course', colSpan: courses.length, styles: { halign: 'center' } }, { content: 'Total', rowSpan: 2, styles: { valign: 'middle' } }], displayHeaders],
-    body: report.map(r => [r.class_roll, r.reg_no, r.name, ...courses.map(c => r.courseCounts[c.course_code] || 0), r.total]),
-    startY: 28, styles: { fontSize: 8, font: 'HindSiliguri' }, headStyles: { fillColor: [79, 70, 229], font: 'HindSiliguri', textColor: 255, halign: 'center' }
+  const { session, year, courses, displayHeaders, held, totalHeld } = currentAttendanceData;
+  const rows = attendanceRowsShown();
+  const last = courses.length + 4;
+  const body = [['', '', 'Classes held', ...courses.map(c => held[c]), totalHeld, ''],
+    ...rows.map(r => [r.class_roll, r.reg_no, r.name + (r.irregular ? ' (I)' : ''), ...courses.map(c => r.courseCounts[c] || 0), r.total, r.pct.toFixed(1) + '%'])];
+  await savePdfA4({
+    file: `Attendance_${session}_${year.replace(/\W+/g, '_')}.pdf`, title: 'Attendance Report',
+    lines: [`Session: ${session}   |   Class: ${yearLabel(year)}`, `Students: ${rows.length}   |   Classes held: ${totalHeld}   |   Red = below ${PASS_PCT}%`],
+    head: [[{ content: 'Roll', rowSpan: 2 }, { content: 'Reg No.', rowSpan: 2 }, { content: 'Student Name', rowSpan: 2 }, { content: 'Course (classes attended)', colSpan: courses.length }, { content: 'Total', rowSpan: 2 }, { content: '%', rowSpan: 2 }], displayHeaders],
+    body, orientation: (courses.length + 5) > 7 ? 'landscape' : 'portrait',
+    didParseCell: (data) => {
+      if (data.section !== 'body') return;
+      if (data.row.index === 0) { data.cell.styles.fillColor = [229, 231, 235]; data.cell.styles.fontStyle = 'bold'; return; }
+      if (data.column.index === last) {
+        const v = parseFloat(data.cell.raw);
+        if (!isNaN(v) && v < PASS_PCT) { data.cell.styles.fillColor = [254, 202, 202]; data.cell.styles.textColor = [153, 27, 27]; }
+      }
+    }
   });
-  doc.save(`Attendance_${session}_${year}.pdf`);
 }
 
+// ---- Class (year) model: Category -> Year, stored codes stay the same ----
+const YEAR_GROUPS = {
+  'Higher Secondary': [['XI', 'XI'], ['XII', 'XII']],
+  'Honours': [['1st Year', '1st'], ['2nd Year', '2nd'], ['3rd Year', '3rd'], ['4th Year', '4th']],
+  'Masters': [['Preliminary', 'Preliminary to Masters'], ['Final', 'Masters Final']]
+};
+const ALL_YEAR_CODES = [].concat(...Object.values(YEAR_GROUPS).map(g => g.map(x => x[1])));
+function yearCodeOf(cat, yearName) { const f = (YEAR_GROUPS[cat] || []).find(x => x[0] === yearName); return f ? f[1] : ''; }
+function yearLabel(code) {
+  for (const [cat, g] of Object.entries(YEAR_GROUPS)) { const f = g.find(x => x[1] === code); if (f) return cat + ' · ' + f[0]; }
+  return code || '';
+}
+function yearOptionsHtml(sel) { return ALL_YEAR_CODES.map(y => `<option value="${attrEsc(y)}"${y === sel ? ' selected' : ''}>${escapeHtml(yearLabel(y))}</option>`).join(''); }
+function nextYearOf(code) {
+  for (const g of Object.values(YEAR_GROUPS)) { const i = g.findIndex(x => x[1] === code); if (i >= 0) return i + 1 < g.length ? g[i + 1][1] : null; }
+  return null;
+}
+function sessionError(s) {
+  if (!/^\d{4}-\d{2}$/.test(s)) return 'Session format must be like 2025-26';
+  const a = parseInt(s.slice(0, 4), 10), b = parseInt(s.slice(5), 10);
+  if ((a + 1) % 100 !== b) return `Session looks wrong. Did you mean ${a}-${String((a + 1) % 100).padStart(2, '0')}?`;
+  return '';
+}
+const PASS_PCT = 60;
+function pctOf(a, b) { return b > 0 ? (a / b) * 100 : 0; }
+
+// ---- Fetch utilities (avoid the 1000-row limit and long URLs) ----
+async function fetchAll(build) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await build(from, from + 999);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+async function fetchByIds(table, cols, col, ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 80) {
+    const part = ids.slice(i, i + 80);
+    out.push(...await fetchAll((a, b) => db.from(table).select(cols).in(col, part).range(a, b)));
+  }
+  return out;
+}
+// Students of a batch (session) + any students of that session found in the given extra ids (e.g. irregulars)
+async function cohortStudents(session, extraIds, cols) {
+  cols = cols || 'id, class_roll, reg_no, name, status, is_irregular, session, year';
+  const base = await fetchAll((a, b) => db.from('students').select(cols).eq('session', session).range(a, b));
+  const have = new Set(base.map(s => s.id));
+  const missing = [...new Set(extraIds || [])].filter(id => !have.has(id));
+  const extra = missing.length ? await fetchByIds('students', cols, 'id', missing) : [];
+  return sortStudents(base.concat(extra));
+}
+// Students attending a class (year): the chosen batch + irregular students of that year
+async function classStudents(session, year, cols) {
+  const { data, error } = await db.from('students').select(cols || 'id, name, class_roll, reg_no, session, is_irregular')
+    .eq('year', year).eq('status', 'active').or(`session.eq.${session},is_irregular.eq.true`).limit(2000);
+  if (error) throw error;
+  return data || [];
+}
+function rollFilter(session, q, partial) {
+  q = String(q).replace(/[,()*%]/g, '');
+  const m = partial ? `class_roll.ilike.%${q}%,reg_no.ilike.%${q}%,name.ilike.%${q}%` : `class_roll.eq.${q},reg_no.eq.${q}`;
+  return `and(session.eq.${session},or(${m})),and(is_irregular.eq.true,or(${m}))`;
+}
+let cohortChoice = {};
+let pickedStudent = null;
+async function resolveCohort(year) {
+  if (cohortChoice[year]) return cohortChoice[year];
+  const { data, error } = await db.from('students').select('session').eq('year', year).eq('status', 'active').eq('is_irregular', false).limit(1000);
+  if (error) throw error;
+  const list = [...new Set((data || []).map(r => r.session))].sort().reverse();
+  if (!list.length) throw new Error('No active students found for ' + yearLabel(year));
+  let pick = list[0];
+  if (list.length > 1) {
+    const r = await Swal.fire({ title: 'Select batch (session)', input: 'select', inputOptions: Object.fromEntries(list.map(x => [x, x])), inputValue: list[0], showCancelButton: true, confirmButtonText: 'OK', confirmButtonColor: '#4f46e5' });
+    if (!r.isConfirmed) throw new Error('Cancelled');
+    pick = r.value;
+  }
+  cohortChoice[year] = pick;
+  return pick;
+}
+
+// ---- A4 PDF helper (printable, page numbers, repeating headers) ----
+async function savePdfA4({ file, title, lines = [], head, body, orientation, headFill = [79, 70, 229], didParseCell, repeatCols = [0, 1, 2] }) {
+  const { jsPDF } = window.jspdf;
+  const ncols = ((body && body[0]) || (head && head[head.length - 1]) || []).length;
+  const orient = orientation || (ncols > 7 ? 'landscape' : 'portrait');
+  const doc = new jsPDF({ orientation: orient, unit: 'mm', format: 'a4' });
+  const bn = await setupBanglaFont(doc);
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 12;
+  doc.setFontSize(13); doc.text('AMC Economics — Department of Economics', M, 12);
+  doc.setFontSize(11); doc.text(String(title), M, 18);
+  doc.setFontSize(9); let y = 23;
+  lines.forEach(l => { doc.text(String(l), M, y); y += 4.5; });
+  const fs = ncols > 18 ? 5.5 : ncols > 13 ? 6.5 : ncols > 9 ? 7.5 : 8.5;
+  const styles = { fontSize: fs, cellPadding: 1.3, overflow: 'linebreak' };
+  const headStyles = { fillColor: headFill, textColor: 255, halign: 'center', fontStyle: 'normal' };
+  if (bn) { styles.font = 'HindSiliguri'; headStyles.font = 'HindSiliguri'; }
+  doc.autoTable({ head, body, startY: y + 1, margin: { left: M, right: M, top: 14, bottom: 14 }, styles, headStyles, alternateRowStyles: { fillColor: [245, 247, 255] }, showHead: 'everyPage', horizontalPageBreak: ncols > 20, horizontalPageBreakRepeat: repeatCols, didParseCell });
+  const n = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
+    doc.text(`Page ${i} of ${n}`, W / 2, H - 6, { align: 'center' });
+    doc.text('Generated: ' + new Date().toLocaleString('en-GB'), W - M, H - 6, { align: 'right' });
+  }
+  doc.save(file);
+}
 
 // ---- helpers: token-based session access (PIN column stays private) ----
 async function mySess(o = {}) {
@@ -3159,8 +3362,10 @@ async function erxFillExams() {
   const s = document.getElementById('erxSession').value.trim(), y = document.getElementById('erxYear').value, keep = sel.value;
   const list = [...STD_EXAMS];
   if (s && y) {
-    const { data } = await db.from('marks').select('exam_type').eq('session', s).eq('year', y).limit(5000);
-    (data || []).forEach(m => { if (m.exam_type && !list.includes(m.exam_type)) list.push(m.exam_type); });
+    try {
+      const data = await fetchAll((a, b) => db.from('marks').select('exam_type').eq('session', s).eq('year', y).range(a, b));
+      data.forEach(m => { if (m.exam_type && !list.includes(m.exam_type)) list.push(m.exam_type); });
+    } catch (e) { console.warn(e); }
   }
   sel.innerHTML = '<option value="">Exam</option>' + list.map(e => `<option>${escapeHtml(e)}</option>`).join('');
   if (list.includes(keep)) sel.value = keep;
@@ -3169,47 +3374,44 @@ async function loadExamwiseReport() {
   const session = document.getElementById('erxSession').value.trim(), year = document.getElementById('erxYear').value, exam = document.getElementById('erxExam').value;
   const area = document.getElementById('examwiseReportArea');
   currentExamwiseData = null;
-  if (!session || !year || !exam) { area.innerHTML = '<p class="text-red-500 text-center py-4">Select session, year and exam</p>'; return; }
+  if (!session || !year || !exam) { area.innerHTML = '<p class="text-red-500 text-center py-4">Select session, class and exam</p>'; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const { data: sR, error: e1 } = await db.from('students').select('id, class_roll, reg_no, name').eq('session', session).eq('year', year).eq('status', 'active');
-    if (e1) throw e1;
-    const students = sortStudents(sR || []);
-    const { data: marks, error: e2 } = await db.from('marks').select('student_id, course_code, marks').eq('session', session).eq('year', year).eq('exam_type', exam).limit(20000);
-    if (e2) throw e2;
-    const courses = [...new Set((marks || []).map(m => m.course_code))].sort();
+    const marks = await fetchAll((a, b) => db.from('marks').select('student_id, course_code, marks').eq('session', session).eq('year', year).eq('exam_type', exam).range(a, b));
+    const courses = [...new Set(marks.map(m => m.course_code))].sort();
     if (!courses.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No marks found for this exam</p>'; return; }
     const mMap = {};
     marks.forEach(m => { (mMap[m.student_id] = mMap[m.student_id] || {})[m.course_code] = m.marks; });
+    await getCourseInfoMap();
+    const students = (await cohortStudents(session, marks.map(m => m.student_id))).filter(s => s.status === 'active' || mMap[s.id]);
     currentExamwiseData = { session, year, exam, courses, students, mMap };
-    const th = 'p-2 border dark:border-gray-600 dark:text-white';
-    area.innerHTML = `<p class="text-sm mb-2 dark:text-white"><b>Exam:</b> ${escapeHtml(exam)} | <b>Session:</b> ${escapeHtml(session)} | <b>Year:</b> ${escapeHtml(year)} | <b>Courses:</b> ${courses.length}</p>
-      <div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600"><thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="${th} num-cell">Roll</th><th class="${th} num-cell">Reg</th><th class="${th} text-left">Name</th>${courses.map(c => `<th class="${th} num-cell">${escapeHtml(c)}</th>`).join('')}<th class="${th}">Total</th></tr></thead><tbody>
+    const th = 'p-2 border dark:border-gray-600 dark:text-white', td = 'p-2 border dark:border-gray-600 text-center num-cell';
+    area.innerHTML = `<p class="text-sm mb-2 dark:text-white"><b>Exam:</b> ${escapeHtml(exam)} | <b>Session:</b> ${escapeHtml(session)} | <b>Class:</b> ${escapeHtml(yearLabel(year))} | <b>Courses:</b> ${courses.length}</p>
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600"><thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="${th}">Roll</th><th class="${th}">Reg</th><th class="${th} text-left">Name</th>${courses.map(c => `<th class="${th} num-display">${escapeHtml(courseLabel(c))}</th>`).join('')}<th class="${th}">Total</th></tr></thead><tbody>
       ${students.map(s => { const row = mMap[s.id] || {}; const total = courses.reduce((t, c) => t + (Number(row[c]) || 0), 0);
-        return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(s.class_roll)}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(s.reg_no || '')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(s.name)}</td>${courses.map(c => `<td class="p-2 border dark:border-gray-600 text-center num-cell">${row[c] ?? '-'}</td>`).join('')}<td class="p-2 border dark:border-gray-600 text-center font-bold num-cell">${total}</td></tr>`; }).join('') || '<tr><td colspan="20" class="text-center py-4 text-gray-400">No students</td></tr>'}
+        return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="${td}">${escapeHtml(s.class_roll)}</td><td class="${td}">${escapeHtml(s.reg_no || '')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(s.name)}${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</td>${courses.map(c => `<td class="${td}">${row[c] ?? '-'}</td>`).join('')}<td class="${td} font-bold">${total}</td></tr>`; }).join('') || '<tr><td colspan="20" class="text-center py-4 text-gray-400">No students</td></tr>'}
       </tbody></table></div>`;
   } catch (err) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`; }
 }
 function examwiseRows() {
   const { courses, students, mMap } = currentExamwiseData;
-  return students.map(s => { const row = mMap[s.id] || {}; const total = courses.reduce((t, c) => t + (Number(row[c]) || 0), 0); return [s.class_roll, s.reg_no || '', s.name, ...courses.map(c => row[c] ?? '-'), total]; });
+  return students.map(s => { const row = mMap[s.id] || {}; const total = courses.reduce((t, c) => t + (Number(row[c]) || 0), 0); return [s.class_roll, s.reg_no || '', s.name + (s.is_irregular ? ' (Irregular)' : ''), ...courses.map(c => row[c] ?? '-'), total]; });
 }
 function exportExamwiseExcel() {
   if (!currentExamwiseData) return toastWarning('Load report first');
   const { session, year, exam, courses } = currentExamwiseData;
-  const data = [[`Exam Result - ${exam}`], [`Session: ${session} | Year: ${year}`], [], ['Roll', 'Reg No.', 'Name', ...courses, 'Total'], ...examwiseRows()];
+  const data = [[`Exam Result — ${exam}`], [`Session: ${session} | Class: ${yearLabel(year)}`], [], ['Roll', 'Reg No.', 'Name', ...courses.map(c => courseLabel(c)), 'Total'], ...examwiseRows()];
   const ws = XLSX.utils.aoa_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Result');
-  XLSX.writeFile(wb, `ExamResult_${exam.replace(/[^\w.-]+/g, '_')}_${session}_${year}.xlsx`);
+  XLSX.writeFile(wb, `ExamResult_${exam.replace(/[^\w.-]+/g, '_')}_${session}_${year.replace(/\W+/g, '_')}.xlsx`);
 }
 async function exportExamwisePDF() {
   if (!currentExamwiseData) return toastWarning('Load report first');
   const { session, year, exam, courses } = currentExamwiseData;
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text(`Exam Result - ${exam}`, 14, 15);
-  doc.setFontSize(10); doc.text(`Session: ${session} | Year: ${year}`, 14, 22);
-  doc.autoTable({ head: [['Roll', 'Reg No.', 'Name', ...courses, 'Total']], body: examwiseRows(), startY: 28, styles: { fontSize: courses.length > 8 ? 6 : 8, font: 'HindSiliguri' }, headStyles: { fillColor: [13, 148, 136], font: 'HindSiliguri' } });
-  doc.save(`ExamResult_${exam.replace(/[^\w.-]+/g, '_')}_${session}_${year}.pdf`);
+  await savePdfA4({
+    file: `ExamResult_${exam.replace(/[^\w.-]+/g, '_')}_${session}_${year.replace(/\W+/g, '_')}.pdf`, title: `Exam Result — ${exam}`, headFill: [13, 148, 136],
+    lines: [`Session: ${session}   |   Class: ${yearLabel(year)}`],
+    head: [['Roll', 'Reg No.', 'Name', ...courses.map(c => courseLabel(c)), 'Total']], body: examwiseRows()
+  });
 }
 
 let currentExamData = null;
@@ -3218,44 +3420,33 @@ async function loadExamReport() {
   const year = document.getElementById('erYear').value;
   const course = document.getElementById('erCourse').value.trim();
   const area = document.getElementById('examReportArea');
+  currentExamData = null;
   if (!session || !year || !course) { area.innerHTML = '<p class="text-red-500 text-center py-4">Fill all fields</p>'; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const { data: sR } = await db.from('students').select('id, class_roll, reg_no, name').eq('session', session).eq('year', year).eq('status', 'active');
-    const students = sortStudents(sR || []);
-    const { data: marks } = await db.from('marks').select('*').eq('session', session).eq('year', year).eq('course_code', course);
+    const marks = await fetchAll((a, b) => db.from('marks').select('student_id, exam_type, marks').eq('session', session).eq('year', year).eq('course_code', course).range(a, b));
     const mMap = {};
-    marks?.forEach(m => { if (!mMap[m.student_id]) mMap[m.student_id] = {}; mMap[m.student_id][m.exam_type] = m.marks; });
-    const examTypes = ['1st In-course', '2nd In-course', 'Assignment', 'Quiz Test', 'Class Test'];
-    currentExamData = { session, year, course, examTypes, students, markMap: mMap };
+    marks.forEach(m => { (mMap[m.student_id] = mMap[m.student_id] || {})[m.exam_type] = m.marks; });
+    const students = (await cohortStudents(session, marks.map(m => m.student_id))).filter(s => s.status === 'active' || mMap[s.id]);
+    const baseTypes = ['1st In-course', '2nd In-course', 'Assignment', 'Quiz Test', 'Class Test'];
+    const extra = [...new Set(marks.map(m => m.exam_type))].filter(t => !baseTypes.includes(t)).sort();
+    const examTypes = baseTypes.concat(extra);
+    currentExamData = { session, year, course, examTypes, baseTypes, students, markMap: mMap };
+    const th = 'p-2 border dark:border-gray-600 dark:text-white', td = 'p-2 border dark:border-gray-600 text-center num-cell';
     area.innerHTML = `
-      <p class="text-sm mb-2 dark:text-white"><b>Session:</b> ${escapeHtml(session)} | <b>Year:</b> ${escapeHtml(year)} | <b>Course:</b> <span class="num-display">${escapeHtml(course)}</span></p>
-      <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
-        <table class="min-w-full text-xs border dark:border-gray-600">
-          <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0">
-            <tr><th class="p-2 border dark:border-gray-600 dark:text-white num-cell">Roll</th><th class="p-2 border dark:border-gray-600 dark:text-white num-cell">Reg</th><th class="p-2 border dark:border-gray-600 dark:text-white text-left">Name</th>${examTypes.map(e => `<th class="p-2 border dark:border-gray-600 dark:text-white">${escapeHtml(e)}</th>`).join('')}<th class="p-2 border dark:border-gray-600 dark:text-white bg-amber-100 dark:bg-amber-900 num-cell">Total</th></tr>
-          </thead>
-          <tbody>
-            ${students?.map(s => {
-              const row = mMap[s.id] || {};
-              const total = examTypes.reduce((sum, e) => sum + (row[e] || 0), 0);
-              return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(s.class_roll)}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(s.reg_no || '-')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(s.name)}</td>${examTypes.map(e => `<td class="p-2 border dark:border-gray-600 text-center num-cell">${row[e] ?? '-'}</td>`).join('')}<td class="p-2 border dark:border-gray-600 text-center font-bold bg-amber-50 dark:bg-amber-900/30 num-cell">${total}</td></tr>`;
-            }).join('') || '<tr><td colspan="10" class="text-center py-4 text-gray-400">No students</td></tr>'}
-          </tbody>
-        </table>
-      </div>`;
+      <p class="text-sm mb-2 dark:text-white"><b>Session:</b> ${escapeHtml(session)} | <b>Class:</b> ${escapeHtml(yearLabel(year))} | <b>Course:</b> <span class="num-display">${escapeHtml(courseLabel(course))}</span></p>
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600">
+      <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="${th}">Roll</th><th class="${th}">Reg</th><th class="${th} text-left">Name</th>${examTypes.map(e => `<th class="${th}">${escapeHtml(e)}</th>`).join('')}<th class="${th} bg-amber-100 dark:bg-amber-900">Total${extra.length ? ' (first 5)' : ''}</th></tr></thead>
+      <tbody>${students.map(s => { const row = mMap[s.id] || {}; const total = baseTypes.reduce((t, e) => t + (row[e] || 0), 0);
+        return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="${td}">${escapeHtml(s.class_roll)}</td><td class="${td}">${escapeHtml(s.reg_no || '-')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(s.name)}${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</td>${examTypes.map(e => `<td class="${td}">${row[e] ?? '-'}</td>`).join('')}<td class="${td} font-bold bg-amber-50 dark:bg-amber-900/30">${total}</td></tr>`; }).join('') || '<tr><td colspan="12" class="text-center py-4 text-gray-400">No students</td></tr>'}</tbody></table></div>`;
   } catch (err) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`; }
 }
 
 async function exportExamExcel() {
   if (!currentExamData) return toastWarning('Load report first');
-  const { session, course, examTypes, students, markMap } = currentExamData;
-  const data = [['Roll', 'Reg No.', 'Name', ...examTypes, 'Total']];
-  students.forEach(s => {
-    const row = markMap[s.id] || {};
-    const total = examTypes.reduce((sum, e) => sum + (row[e] || 0), 0);
-    data.push([s.class_roll, s.reg_no || '', s.name, ...examTypes.map(e => row[e] ?? ''), total]);
-  });
+  const { session, year, course, examTypes, baseTypes, students, markMap } = currentExamData;
+  const data = [['AMC Economics — Marks Report'], [`Session: ${session} | Class: ${yearLabel(year)} | Course: ${courseLabel(course)}`], [], ['Roll', 'Reg No.', 'Name', ...examTypes, 'Total']];
+  students.forEach(s => { const row = markMap[s.id] || {}; data.push([s.class_roll, s.reg_no || '', s.name + (s.is_irregular ? ' (Irregular)' : ''), ...examTypes.map(e => row[e] ?? ''), baseTypes.reduce((t, e) => t + (row[e] || 0), 0)]); });
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Marks');
   XLSX.writeFile(wb, `Exam_${course}_${session}.xlsx`);
@@ -3263,87 +3454,86 @@ async function exportExamExcel() {
 
 async function exportExamPDF() {
   if (!currentExamData) return toastWarning('Load report first');
-  const { session, year, course, examTypes, students, markMap } = currentExamData;
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text(`Exam Mark Report - ${course}`, 14, 15);
-  doc.setFontSize(10); doc.text(`Session: ${session} | Year: ${year}`, 14, 22);
-  doc.autoTable({
+  const { session, year, course, examTypes, baseTypes, students, markMap } = currentExamData;
+  await savePdfA4({
+    file: `Exam_${course}_${session}.pdf`, title: 'Exam Mark Report', headFill: [245, 158, 11],
+    lines: [`Course: ${courseLabel(course)}`, `Session: ${session}   |   Class: ${yearLabel(year)}`],
     head: [['Roll', 'Reg No.', 'Name', ...examTypes, 'Total']],
-    body: students.map(s => { const row = markMap[s.id] || {}; const total = examTypes.reduce((sum, e) => sum + (row[e] || 0), 0); return [s.class_roll, s.reg_no || '-', s.name, ...examTypes.map(e => row[e] ?? '-'), total]; }),
-    startY: 28, styles: { fontSize: 8, font: 'HindSiliguri' }, headStyles: { fillColor: [245, 158, 11], font: 'HindSiliguri' }
+    body: students.map(s => { const row = markMap[s.id] || {}; return [s.class_roll, s.reg_no || '-', s.name + (s.is_irregular ? ' (I)' : ''), ...examTypes.map(e => row[e] ?? '-'), baseTypes.reduce((t, e) => t + (row[e] || 0), 0)]; })
   });
-  doc.save(`Exam_${course}_${session}.pdf`);
 }
 
 let currentIndividualData = null;
 async function loadIndividualReport() {
   const session = document.getElementById('irSession').value.trim();
   const year = document.getElementById('irYear').value;
-  const roll = document.getElementById('irRoll').value.trim();
+  const roll = document.getElementById('irRoll').value.trim().replace(/[,()*%]/g, '');
   const area = document.getElementById('individualReportArea');
+  currentIndividualData = null;
   if (!session || !year || !roll) { area.innerHTML = '<p class="text-red-500 text-center py-4">Fill all fields</p>'; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const { data: student } = await db.from('students').select('id, name, class_roll, reg_no').eq('session', session).eq('year', year).or(`class_roll.eq.${roll},reg_no.eq.${roll}`).maybeSingle();
-    if (!student) { area.innerHTML = '<p class="text-red-500 text-center py-4">❌ Student not found</p>'; return; }
-    const { data: courses } = await db.from('courses').select('*').eq('session', session).eq('year', year).order('course_code');
-    const { data: sessions } = await db.from('attendance_sessions').select('id, course_code, date').eq('session', session).eq('year', year).order('date');
-    const sIds = sessions?.map(s => s.id) || [];
-    let records = [];
-    if (sIds.length) {
-      const { data: recs } = await db.from('attendance_records').select('*').eq('student_id', student.id).in('session_id', sIds);
-      records = recs || [];
-    }
-    const dMap = {};
-    sessions?.forEach(s => {
-      if (!dMap[s.date]) dMap[s.date] = {};
-      const rec = records.find(r => r.session_id === s.id);
-      dMap[s.date][s.course_code] = rec ? rec.status : null;
+    const cols = 'id, name, class_roll, reg_no, session, year, is_irregular';
+    let { data: found } = await db.from('students').select(cols).eq('session', session).or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(2);
+    if (!found || !found.length) { const r = await db.from('students').select(cols).eq('is_irregular', true).or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(2); found = r.data || []; }
+    if (!found.length) { area.innerHTML = '<p class="text-red-500 text-center py-4">❌ Student not found</p>'; return; }
+    const student = found[0];
+    const sessions = await fetchAll((a, b) => { let x = db.from('attendance_sessions').select('id, course_code, date').eq('year', year); if (!student.is_irregular) x = x.eq('session', session); return x.order('date').range(a, b); });
+    const recs = await fetchAll((a, b) => db.from('attendance_records').select('session_id, status').eq('student_id', student.id).range(a, b));
+    const recMap = {}; recs.forEach(r => { recMap[r.session_id] = r.status; });
+    const dMap = {}, held = {}, att = {};
+    sessions.forEach(s => {
+      const st = recMap[s.id] || null;
+      (dMap[s.date] = dMap[s.date] || {})[s.course_code] = st;
+      held[s.course_code] = (held[s.course_code] || 0) + 1;
+      if (st === 'present' || st === 'late') att[s.course_code] = (att[s.course_code] || 0) + 1;
     });
-    const dates = Object.keys(dMap).sort();
-    const cCodes = courses?.map(c => c.course_code) || [];
-    currentIndividualData = { student, session, year, courseCodes: cCodes, dates, dateMap: dMap };
+    const dates = Object.keys(dMap).sort(), cCodes = Object.keys(held).sort();
+    const totalHeld = cCodes.reduce((t, c) => t + held[c], 0), totalAtt = cCodes.reduce((t, c) => t + (att[c] || 0), 0), pct = pctOf(totalAtt, totalHeld);
+    currentIndividualData = { student, session, year, courseCodes: cCodes, dates, dateMap: dMap, held, att, totalHeld, totalAtt, pct };
+    await getCourseInfoMap();
+    const th = 'p-2 border dark:border-gray-600 dark:text-white', low = pct < PASS_PCT;
     area.innerHTML = `
       <div class="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-xl mb-3">
-        <p class="text-sm dark:text-white"><b>Name:</b> ${escapeHtml(student.name)}</p>
-        <p class="text-sm dark:text-white"><b>Roll:</b> <span class="num-display">${escapeHtml(student.class_roll)}</span> | <b>Reg:</b> <span class="num-display">${escapeHtml(student.reg_no || '-')}</span></p>
+        <p class="text-sm dark:text-white"><b>Name:</b> ${escapeHtml(student.name)}${student.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</p>
+        <p class="text-sm dark:text-white"><b>Roll:</b> <span class="num-display">${escapeHtml(student.class_roll)}</span> | <b>Reg:</b> <span class="num-display">${escapeHtml(student.reg_no || '-')}</span> | <b>Class:</b> ${escapeHtml(yearLabel(year))}</p>
+        <p class="text-sm mt-1 font-bold ${low ? 'text-red-600' : 'text-emerald-600'}">Attendance: <span class="num-display">${totalAtt}/${totalHeld}</span> (${pct.toFixed(1)}%)${low ? ` — below ${PASS_PCT}%` : ''}</p>
       </div>
-      <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
-        <table class="min-w-full text-xs border dark:border-gray-600">
-          <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="p-2 border dark:border-gray-600 dark:text-white">Date</th>${cCodes.map(c => `<th class="p-2 border dark:border-gray-600 dark:text-white num-display">${escapeHtml(c)}</th>`).join('')}</tr></thead>
-          <tbody>
-            ${dates.map(d => `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700"><td class="p-2 border dark:border-gray-600 text-center font-bold dark:text-white num-cell">${escapeHtml(d)}</td>${cCodes.map(c => { const st = dMap[d][c]; let disp = '-'; let cls = 'text-gray-400'; if (st === 'present') { disp = 'P'; cls = 'text-emerald-600 font-bold'; } else if (st === 'absent') { disp = 'A'; cls = 'text-red-600 font-bold'; } else if (st === 'late') { disp = 'L'; cls = 'text-amber-600 font-bold'; } else if (st === 'excused') { disp = 'E'; cls = 'text-blue-600 font-bold'; } return `<td class="p-2 border dark:border-gray-600 text-center ${cls} num-cell">${disp}</td>`; }).join('')}</tr>`).join('') || '<tr><td colspan="10" class="text-center py-4 text-gray-400">No attendance records</td></tr>'}
-          </tbody>
-        </table>
-      </div>`;
+      <div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600">
+      <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="${th}">Date</th>${cCodes.map(c => `<th class="${th} num-display">${escapeHtml(c)}</th>`).join('')}</tr>
+        <tr class="bg-gray-50 dark:bg-gray-600"><td class="${th} text-center font-bold">Attended</td>${cCodes.map(c => `<td class="${th} text-center font-bold num-cell">${att[c] || 0}/${held[c]}</td>`).join('')}</tr></thead>
+      <tbody>${dates.map(d => `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700"><td class="p-2 border dark:border-gray-600 text-center font-bold dark:text-white num-cell">${escapeHtml(d)}</td>${cCodes.map(c => { const st = dMap[d][c]; let disp = '-', cls = 'text-gray-400'; if (st === 'present') { disp = 'P'; cls = 'text-emerald-600 font-bold'; } else if (st === 'absent') { disp = 'A'; cls = 'text-red-600 font-bold'; } else if (st === 'late') { disp = 'L'; cls = 'text-amber-600 font-bold'; } else if (st === 'excused') { disp = 'E'; cls = 'text-blue-600 font-bold'; } else if (c in dMap[d]) { disp = 'A'; cls = 'text-red-400'; } return `<td class="p-2 border dark:border-gray-600 text-center ${cls} num-cell">${disp}</td>`; }).join('')}</tr>`).join('') || '<tr><td colspan="10" class="text-center py-4 text-gray-400">No classes found</td></tr>'}</tbody></table></div>`;
   } catch (err) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`; }
+}
+function indivCell(d, date, c) {
+  const st = d.dateMap[date][c];
+  if (st === 'present') return 'P'; if (st === 'late') return 'L'; if (st === 'excused') return 'E'; if (st === 'absent') return 'A';
+  return (c in d.dateMap[date]) ? 'A' : '';
 }
 
 async function exportIndividualExcel() {
-  if (!currentIndividualData) return toastWarning('Load report first');
-  const { student, session, year, courseCodes, dates, dateMap } = currentIndividualData;
-  const data = [['AMC Economics - Individual Report'], [''], ['Roll', student.class_roll], ['Reg', student.reg_no || ''], ['Name', student.name], ['Session', session], ['Year', year], [''], ['Date', ...courseCodes]];
-  dates.forEach(d => data.push([d, ...courseCodes.map(c => { const st = dateMap[d][c]; if (st === 'present') return 'P'; if (st === 'absent') return 'A'; if (st === 'late') return 'L'; if (st === 'excused') return 'E'; return ''; })]));
+  const d = currentIndividualData;
+  if (!d) return toastWarning('Load report first');
+  const { student, session, year, courseCodes, dates } = d;
+  const data = [['AMC Economics — Individual Attendance Report'], [''], ['Roll', student.class_roll], ['Reg', student.reg_no || ''], ['Name', student.name], ['Session', session], ['Class', yearLabel(year)], [''], ['Date', ...courseCodes]];
+  dates.forEach(dt => data.push([dt, ...courseCodes.map(c => indivCell(d, dt, c))]));
+  data.push([''], ['Attended', ...courseCodes.map(c => d.att[c] || 0)], ['Held', ...courseCodes.map(c => d.held[c])], ['Total', `${d.totalAtt}/${d.totalHeld}`, `${d.pct.toFixed(1)}%`]);
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Individual');
   XLSX.writeFile(wb, `Individual_${student.class_roll}.xlsx`);
 }
 
 async function exportIndividualPDF() {
-  if (!currentIndividualData) return toastWarning('Load report first');
-  const { student, session, year, courseCodes, dates, dateMap } = currentIndividualData;
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text('AMC Economics - Individual Report', 14, 15);
-  doc.setFontSize(10); doc.text(`Name: ${student.name} | Roll: ${student.class_roll}`, 14, 22);
-  doc.text(`Session: ${session} | Year: ${year}`, 14, 28);
-  doc.autoTable({
+  const d = currentIndividualData;
+  if (!d) return toastWarning('Load report first');
+  const { student, session, year, courseCodes, dates } = d;
+  await savePdfA4({
+    file: `Individual_${student.class_roll}.pdf`, title: 'Individual Attendance Report', headFill: [236, 72, 153], repeatCols: [0],
+    lines: [`Name: ${student.name}   |   Roll: ${student.class_roll}   |   Reg: ${student.reg_no || '-'}`, `Session: ${session}   |   Class: ${yearLabel(year)}`, `Attendance: ${d.totalAtt}/${d.totalHeld} (${d.pct.toFixed(1)}%)${d.pct < PASS_PCT ? ' — below ' + PASS_PCT + '%' : ''}`],
     head: [['Date', ...courseCodes]],
-    body: dates.map(d => [d, ...courseCodes.map(c => { const st = dateMap[d][c]; if (st === 'present') return 'P'; if (st === 'absent') return 'A'; if (st === 'late') return 'L'; if (st === 'excused') return 'E'; return '-'; })]),
-    startY: 34, styles: { fontSize: 9, font: 'HindSiliguri' }, headStyles: { fillColor: [236, 72, 153], font: 'HindSiliguri' }
+    body: [['Attended / Held', ...courseCodes.map(c => `${d.att[c] || 0}/${d.held[c]}`)], ...dates.map(dt => [dt, ...courseCodes.map(c => indivCell(d, dt, c) || '-')])],
+    didParseCell: (x) => { if (x.section === 'body' && x.row.index === 0) { x.cell.styles.fillColor = [229, 231, 235]; x.cell.styles.fontStyle = 'bold'; } }
   });
-  doc.save(`Individual_${student.class_roll}.pdf`);
 }
 
 // ============================================================
@@ -3478,7 +3668,7 @@ async function showTeacherTab(tab) {
     }
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     await getCourseInfoMap();
-    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">No courses</option>';
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${escapeHtml(yearLabel(c.year))}</option>`).join('') || '<option value="">No courses</option>';
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3>
@@ -3497,7 +3687,7 @@ async function showTeacherTab(tab) {
   else if (tab === 'manualEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     await getCourseInfoMap();
-    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">No courses</option>';
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${escapeHtml(yearLabel(c.year))}</option>`).join('') || '<option value="">No courses</option>';
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
@@ -3510,14 +3700,13 @@ async function showTeacherTab(tab) {
         <input id="meRoll" placeholder="Selected roll" readonly class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         <select id="meStatus" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="present">✅ Present</option><option value="absent">❌ Absent</option><option value="late">⏰ Late</option><option value="excused">📝 Excused</option></select>
         <button onclick="manualAttendance()" class="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">Save</button>
-        <div class="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-xl mt-2"><p class="text-xs text-blue-700 dark:text-blue-300 mb-2">🟢 One-click all present:</p><button onclick="openBulkPresent()" class="w-full bg-emerald-600 text-white py-2 rounded-xl font-bold btn-pop text-sm">✅ Mark all present</button></div>
       </div>`;
     setupManualSearch();
   }
   else if (tab === 'markEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     await getCourseInfoMap();
-    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '<option value="">No courses</option>';
+    const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${escapeHtml(yearLabel(c.year))}</option>`).join('') || '<option value="">No courses</option>';
     el.innerHTML = `
       <div class="space-y-4">
         <h3 class="text-lg font-bold dark:text-white">📊 Marks Entry</h3>
@@ -3538,7 +3727,7 @@ async function showTeacherTab(tab) {
   else if (tab === 'attendanceReport') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     await getCourseInfoMap();
-    const courseOpts = '<option value="">All courses</option>' + (dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.session}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${c.session} · ${c.year}</option>`).join('') || '');
+    const courseOpts = '<option value="">All courses</option>' + (dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${escapeHtml(yearLabel(c.year))}</option>`).join('') || '');
     const today = new Date().toISOString().split('T')[0];
     el.innerHTML = `
       <div class="space-y-4">
@@ -3564,13 +3753,13 @@ async function showTeacherTab(tab) {
     await getCourseInfoMap();
     const grp = {};
     myCourses.forEach(c => {
-      const k = `${c.course_code}|${c.session}|${c.year}`;
+      const k = `${c.course_code}|${c.year}`;
       if (!grp[k]) grp[k] = { ...c, slots: [] };
       if (c.class_day && c.time_slot) grp[k].slots.push({ class_day: c.class_day, time_slot: c.time_slot, room: c.room });
     });
     const details = await Promise.all(Object.values(grp).map(async c => {
-      const { data: info } = await db.from('courses').select('course_name').eq('session', c.session).eq('year', c.year).eq('course_code', c.course_code).maybeSingle();
-      const { count } = await db.from('attendance_sessions').select('id', { count: 'exact', head: true }).eq('teacher_id', currentTeacher.id).eq('course_code', c.course_code).eq('session', c.session).eq('year', c.year);
+      const info = { course_name: courseInfo(c.course_code).name };
+      const { count } = await db.from('attendance_sessions').select('id', { count: 'exact', head: true }).eq('teacher_id', currentTeacher.id).eq('course_code', c.course_code).eq('year', c.year);
       return { ...c, course_name: info?.course_name, sessionCount: count || 0 };
     }));
     el.innerHTML = `
@@ -3579,7 +3768,7 @@ async function showTeacherTab(tab) {
         ${details.map(c => `
           <div class="bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-900/30 dark:to-blue-900/30 p-4 rounded-xl border-2 border-cyan-200 dark:border-cyan-700">
             <p class="font-bold text-gray-800 dark:text-white"><span class="num-display">${escapeHtml(courseLabel(c.course_code, c.course_name))}</span></p>
-            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">📅 <span class="num-display">${escapeHtml(c.session)}</span> · <span class="num-display">${escapeHtml(c.year)}</span></p>
+            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">📅 ${escapeHtml(yearLabel(c.year))}</p>
             <p class="text-xs text-cyan-700 dark:text-cyan-300 mt-2">📊 <span class="num-display">${c.sessionCount}</span> classes</p>
             <div class="mt-1">${slotChips(c.slots)}</div>
           </div>`).join('')}
@@ -3634,29 +3823,29 @@ function setupManualSearch() {
 async function searchStudentForManual(query) {
   const cv = document.getElementById('meCourse').value;
   if (!cv) return;
-  const [, session, year] = cv.split('|');
-
+  const year = cv.split('|')[1];
+  let session;
+  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
+  const q = String(query).replace(/[,()*%]/g, '');
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + session + '_' + year);
     if (cached) {
-      const all = JSON.parse(cached);
-      let filtered = all.filter(st => st.class_roll === query || st.reg_no === query);
-      if (filtered.length === 0) filtered = all.filter(st => (st.class_roll && st.class_roll.includes(query)) || (st.reg_no && st.reg_no.includes(query)));
-      renderManualSuggestions(filtered);
+      const all = JSON.parse(cached), lc = q.toLowerCase();
+      let f = all.filter(st => String(st.class_roll) === q || String(st.reg_no) === q);
+      if (!f.length) f = all.filter(st => String(st.class_roll || '').toLowerCase().includes(lc) || String(st.reg_no || '').toLowerCase().includes(lc) || String(st.name || '').toLowerCase().includes(lc));
+      renderManualSuggestions(f.slice(0, 10));
     }
     return;
   }
-
-  let { data: exactMatch } = await db.from('students').select('id, name, class_roll, reg_no').eq('session', session).eq('year', year).eq('status', 'active').or(`class_roll.eq.${query},reg_no.eq.${query}`).limit(5);
-  if (!exactMatch || exactMatch.length === 0) {
-    const { data: partialMatch } = await db.from('students').select('id, name, class_roll, reg_no').eq('session', session).eq('year', year).eq('status', 'active').or(`class_roll.ilike.%${query}%,reg_no.ilike.%${query}%`).limit(10);
-    exactMatch = partialMatch || [];
-  }
-  renderManualSuggestions(exactMatch);
+  const cols = 'id, name, class_roll, reg_no, session, is_irregular';
+  let { data: hit } = await db.from('students').select(cols).eq('year', year).eq('status', 'active').or(rollFilter(session, q, false)).limit(5);
+  if (!hit || !hit.length) { const r = await db.from('students').select(cols).eq('year', year).eq('status', 'active').or(rollFilter(session, q, true)).limit(10); hit = r.data || []; }
+  renderManualSuggestions(hit);
 }
 
 function renderManualSuggestions(students) {
   const box = document.getElementById('meSuggestionBox');
+  window._meStuId = null;
   if (!students || !students.length) {
     box.classList.remove('hidden');
     box.className = 'suggestion-box mb-3';
@@ -3667,39 +3856,18 @@ function renderManualSuggestions(students) {
   box.classList.remove('hidden');
   box.className = 'suggestion-box mb-3';
   box.innerHTML = sorted.map(s => `
-    <div class="suggestion-item" data-roll="${escapeHtml(s.class_roll)}" data-name="${escapeHtml(s.name)}">
-      <div><div class="font-bold text-sm"><span class="num-display">${escapeHtml(s.class_roll)}</span> — ${escapeHtml(s.name)}</div><div class="text-xs text-gray-500 dark:text-gray-400">Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span></div></div>
+    <div class="suggestion-item" data-id="${escapeHtml(s.id)}" data-roll="${escapeHtml(s.class_roll)}" data-name="${escapeHtml(s.name)}">
+      <div><div class="font-bold text-sm"><span class="num-display">${escapeHtml(s.class_roll)}</span> — ${escapeHtml(s.name)}${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</div><div class="text-xs text-gray-500 dark:text-gray-400">Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span></div></div>
       <span class="text-indigo-500">›</span>
     </div>`).join('');
   box.querySelectorAll('.suggestion-item').forEach(item => {
     item.addEventListener('click', () => {
+      window._meStuId = item.dataset.id;
       document.getElementById('meRoll').value = item.dataset.roll;
       document.getElementById('meSearch').value = `${item.dataset.roll} — ${item.dataset.name}`;
       box.classList.add('hidden'); box.innerHTML = '';
     });
   });
-}
-
-async function openBulkPresent() {
-  const cv = document.getElementById('meCourse').value;
-  const date = document.getElementById('meDate').value;
-  if (!cv || !date) return toastWarning('Enter course and date');
-  const [course_code, session, year] = cv.split('|');
-  showGlobalLoader();
-  try {
-    let { data: sess } = await mySessOne({ session, year, course: course_code, date });
-    if (!sess) {
-      const { data: pd, error: pe } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
-      if (pe || !pd?.ok) return toastError('Session creation failed');
-      const { data: ns } = await mySessOne({ session, year, course: course_code, date });
-      sess = ns;
-    }
-    const ok = await confirmAction('Mark all present?', 'Students who already marked will be skipped.', 'Yes', '#059669');
-    if (!ok) return;
-    const { data, error } = await db.rpc('t_bulk_present', { p_token: currentTeacher.token, p_session_id: sess.id });
-    if (error || !data.ok) return toastError(data?.message || error?.message);
-    toastSuccess(`${data.added} students marked present`);
-  } finally { hideGlobalLoader(); }
 }
 
 // ============================================================
@@ -3733,7 +3901,7 @@ async function loadScheduledClassBanner() {
 
   const dayBase = Date.parse(bd.dateStr + 'T00:00:00Z') - 6 * 3600 * 1000;
   const { data: act } = await mySess({ from: bd.dateStr, to: bd.dateStr });
-  const pending = due.filter(r => { const winStart = dayBase + (parseSlotStartMinutes(r.time_slot) - 10) * 60000; return !(act || []).some(a => a.course_code === r.course_code && a.session === r.session && a.year === r.year && new Date(a.created_at).getTime() >= winStart); });
+  const pending = due.filter(r => { const winStart = dayBase + (parseSlotStartMinutes(r.time_slot) - 10) * 60000; return !(act || []).some(a => a.course_code === r.course_code && a.year === r.year && new Date(a.created_at).getTime() >= winStart); });
   if (!pending.length) { c.innerHTML = ''; return; }
 
   await getCourseInfoMap();
@@ -3743,15 +3911,17 @@ async function loadScheduledClassBanner() {
     return `
       <div class="mb-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white p-5 rounded-2xl shadow-xl border-4 border-amber-300 fade-in">
         <p class="text-xs font-bold tracking-wider opacity-90 mb-1">⏰ CLASS TIME</p>
-        <p class="text-xl md:text-2xl font-bold leading-snug">Scheduled: ${escapeHtml(name)} (<span class="num-display">${escapeHtml(r.course_code)}</span>), ${escapeHtml(r.session)}, ${escapeHtml(r.year)}, <span class="num-display">${escapeHtml(r.time_slot)}</span>. Generate PIN now.</p>
-        <button data-code="${attrEsc(r.course_code)}" data-session="${attrEsc(r.session)}" data-year="${attrEsc(r.year)}" onclick="generateScheduledPin(this)" class="mt-4 w-full bg-white text-orange-700 text-xl font-bold py-4 rounded-2xl btn-pop shadow-lg">🎲 Generate PIN</button>
+        <p class="text-xl md:text-2xl font-bold leading-snug">Scheduled: ${escapeHtml(name)} (<span class="num-display">${escapeHtml(r.course_code)}</span>), ${escapeHtml(yearLabel(r.year))}, <span class="num-display">${escapeHtml(r.time_slot)}</span>. Generate PIN now.</p>
+        <button data-code="${attrEsc(r.course_code)}" data-year="${attrEsc(r.year)}" onclick="generateScheduledPin(this)" class="mt-4 w-full bg-white text-orange-700 text-xl font-bold py-4 rounded-2xl btn-pop shadow-lg">🎲 Generate PIN</button>
       </div>`;
   }).join('');
 }
 
 async function generateScheduledPin(btn) {
   if (!currentTeacher || !btn) return;
-  const course_code = btn.dataset.code, session = btn.dataset.session, year = btn.dataset.year;
+  const course_code = btn.dataset.code, year = btn.dataset.year;
+  let session;
+  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
   btn.disabled = true;
   showGlobalLoader();
   try {
@@ -3803,13 +3973,15 @@ async function closeActivePinFromBanner(sessionId) {
 async function generatePin() {
   const sel = document.getElementById('atCourseSelect');
   if (!sel || !sel.value) return toastWarning('Select course');
-  const [course_code, session, year] = sel.value.split('|');
+  const [course_code, year] = sel.value.split('|');
   const date = document.getElementById('atDate').value;
   if (!date) return toastWarning('Select date');
+  let session;
+  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
   showGlobalLoader();
   try {
     const { data, error } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
-    if (error || !data.ok) return toastError(data?.message || 'PIN generation failed');
+    if (error || !data || !data.ok) return toastError((data && data.message) || 'PIN generation failed');
     toastSuccess('PIN generated');
     renderPinDisplay(data.pin, data.session_id, 45, new Date(Date.now() + 45 * 60000).toISOString());
     loadActivePinBanner();
@@ -3874,26 +4046,33 @@ function subscribeLive(sessionId) {
 async function manualAttendance() {
   const cv = document.getElementById('meCourse').value;
   const date = document.getElementById('meDate').value;
-  const roll = document.getElementById('meRoll').value.trim();
+  const roll = document.getElementById('meRoll').value.trim().replace(/[,()*%]/g, '');
   const status = document.getElementById('meStatus').value;
   if (!cv || !date || !roll) return toastWarning('Fill all fields');
-  const [course_code, session, year] = cv.split('|');
+  const [course_code, year] = cv.split('|');
+  let session;
+  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
   showGlobalLoader();
   try {
-    let { data: sess } = await mySessOne({ session, year, course: course_code, date });
+    let { data: sess } = await mySessOne({ year, course: course_code, date });
     if (!sess) {
       const { data: pd, error: pe } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
-      if (pe || !pd?.ok || !pd?.session_id) return toastError('Session creation failed');
-      const { data: ns } = await mySessOne({ session, year, course: course_code, date });
-      sess = ns;
+      if (pe || !pd?.ok || !pd?.session_id) return toastError((pd && pd.message) || 'Session creation failed');
+      ({ data: sess } = await mySessOne({ year, course: course_code, date }));
     }
     if (!sess) return toastError('Session ID not found');
-    const { data: student } = await db.from('students').select('id, name').eq('session', session).eq('year', year).eq('status', 'active').or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(1);
-    const stu = student && student.length > 0 ? student[0] : null;
+    let stu = null;
+    if (window._meStuId) stu = { id: window._meStuId, name: document.getElementById('meSearch').value };
+    else {
+      const { data: student } = await db.from('students').select('id, name').eq('year', year).eq('status', 'active').or(rollFilter(session, roll, false)).limit(2);
+      if (student && student.length > 1) return toastWarning('Several students match — search and pick one from the list');
+      stu = student && student[0] ? student[0] : null;
+    }
     if (!stu) return toastError('Student not found');
     const { data: ma, error: maErr } = await db.rpc('t_manual_attendance', { p_token: currentTeacher.token, p_session_id: sess.id, p_student_id: stu.id, p_status: status });
     if (maErr || !ma || !ma.ok) return toastError((ma && ma.message) || (maErr && maErr.message) || 'Save failed');
     toastSuccess('Saved: ' + stu.name);
+    window._meStuId = null;
     document.getElementById('meRoll').value = '';
     document.getElementById('meSearch').value = '';
   } finally { hideGlobalLoader(); }
@@ -3912,7 +4091,7 @@ async function loadTeacherAttendanceReport() {
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   await getCourseInfoMap();
   let fs = null, fy = null, fc = null;
-  if (cv) [fc, fs, fy] = cv.split('|');
+  if (cv) [fc, fy] = cv.split('|');
   let q = mySess({ from: fromDate, to: toDate, session: fs, year: fy, course: fc });
   
   const { data: sessions, error: sErr } = await q;
@@ -3987,26 +4166,17 @@ async function exportTeacherAttendanceExcel() {
 async function exportTeacherAttendancePDF() {
   if (!currentTeacherAttendanceData) return toastWarning('Load report first');
   const { fromDate, toDate, rows } = currentTeacherAttendanceData;
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text('AMC Economics - Teacher Attendance Report', 14, 15);
-  doc.setFontSize(10); doc.text(`Period: ${fromDate} to ${toDate}`, 14, 22);
-  let sY = 28;
+  const body = [];
   rows.forEach(({ session, records }) => {
-    if (records.length === 0) return;
-    doc.setFontSize(11); doc.text(`${session.date} - ${courseLabel(session.course_code)} (PIN: ${session.pin})`, 14, sY);
-    doc.autoTable({
-      head: [['Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']],
-      body: sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', ...r }))).map(r => {
-        const dt = r.marked_at ? new Date(r.marked_at) : null;
-        return [r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : '-', shortDevice(r.device_id)];
-      }),
-      startY: sY + 4, styles: { fontSize: 8, font: 'HindSiliguri' }, headStyles: { fillColor: [20, 184, 166], font: 'HindSiliguri' }, margin: { left: 14 }
+    sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', ...r }))).forEach(r => {
+      const dt = r.marked_at ? new Date(r.marked_at) : null;
+      body.push([session.date, courseLabel(session.course_code), r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
     });
-    sY = doc.lastAutoTable.finalY + 8;
-    if (sY > 180) { doc.addPage(); sY = 20; }
   });
-  doc.save(`TeacherReport_${fromDate}_to_${toDate}.pdf`);
+  if (!body.length) return toastWarning('No attendance to export');
+  await savePdfA4({ file: `TeacherReport_${fromDate}_to_${toDate}.pdf`, title: 'Teacher Attendance Report', headFill: [20, 184, 166], repeatCols: [0, 1],
+    lines: [`Teacher: ${currentTeacher?.name || ''}`, `Period: ${fromDate} to ${toDate}`],
+    head: [['Date', 'Course', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']], body });
 }
 
 // ============================================================
@@ -4021,12 +4191,15 @@ async function loadMarkEntry() {
   const exam = examVal === 'Others' ? (customExam || 'Others') : examVal;
   if (!cv) return toastWarning('Select course');
   if (examVal === 'Others' && !customExam) return toastWarning('Enter exam name');
-  const [course, session, year] = cv.split('|');
-  if (!session || !year) return toastWarning('Course info incomplete');
+  const [course, year] = cv.split('|');
+  if (!year) return toastWarning('Course info incomplete');
+  let session;
+  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
 
   showGlobalLoader();
   try {
-    const { data: sRaw, error: sE } = await db.from('students').select('id, name, class_roll, reg_no').eq('session', session).eq('year', year).eq('status', 'active');
+    let sRaw, sE;
+    try { sRaw = await classStudents(session, year, 'id, name, class_roll, reg_no, session, is_irregular'); } catch (e) { sE = e; }
     if (sE) return toastError(sE.message);
     const students = sortStudents(sRaw || []);
     if (!students.length) { toastWarning('No students'); return; }
@@ -4048,7 +4221,7 @@ async function loadMarkEntry() {
     area.innerHTML = `
       <div class="space-y-3">
         <div class="flex justify-between items-center flex-wrap gap-2">
-          <div><p class="font-bold dark:text-white"><span class="num-display">${escapeHtml(course)}</span> · <span class="num-display">${escapeHtml(exam)}</span></p><p class="text-xs text-gray-500 dark:text-gray-400"><span class="num-display">${students.length}</span> students · <span class="num-display">${session}</span> · <span class="num-display">${year}</span></p></div>
+          <div><p class="font-bold dark:text-white"><span class="num-display">${escapeHtml(course)}</span> · <span class="num-display">${escapeHtml(exam)}</span></p><p class="text-xs text-gray-500 dark:text-gray-400"><span class="num-display">${students.length}</span> students · <span class="num-display">${session}</span> · ${escapeHtml(yearLabel(year))}</p></div>
           <div class="flex gap-2 flex-wrap">
             <button onclick="downloadMarksTemplate()" class="bg-gray-500 text-white px-4 py-2 rounded-lg btn-pop text-sm">📥 Template</button>
             <button onclick="exportMarksExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-lg btn-pop text-sm">📊 Excel</button>
@@ -4159,16 +4332,9 @@ async function exportMarksExcel() {
 async function exportMarksPDF() {
   const ctx = currentMarkContext;
   if (!ctx) return;
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'portrait' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text(`Marks - ${ctx.course} (${ctx.exam})`, 14, 15);
-  doc.setFontSize(10); doc.text(`Session: ${ctx.session} | Year: ${ctx.year}`, 14, 22);
-  doc.autoTable({
-    head: [['Roll', 'Reg', 'Name', 'Marks']],
-    body: ctx.students.map(s => [s.class_roll, s.reg_no || '-', s.name, ctx.mMap[s.id] ?? '-']),
-    startY: 28, styles: { fontSize: 9, font: 'HindSiliguri' }, headStyles: { fillColor: [139, 92, 246], font: 'HindSiliguri' }
-  });
-  doc.save(`Marks_${ctx.course}_${ctx.exam}.pdf`);
+  await savePdfA4({ file: `Marks_${ctx.course}_${ctx.exam}.pdf`, title: `Marks — ${courseLabel(ctx.course)} (${ctx.exam})`, headFill: [139, 92, 246], repeatCols: [0],
+    lines: [`Session: ${ctx.session}   |   Class: ${yearLabel(ctx.year)}`],
+    head: [['Roll', 'Reg', 'Name', 'Marks']], body: ctx.students.map(s => [s.class_roll, s.reg_no || '-', s.name, ctx.mMap[s.id] ?? '-']) });
 }
 
 async function importMarksExcel() {
@@ -4291,16 +4457,10 @@ async function exportTrackingExcel() {
 async function exportTrackingPDF() {
   const data = window.currentTrackingData;
   if (!data) return toastWarning('Search first');
-  const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: 'landscape' });
-  await setupBanglaFont(doc);
-  doc.setFontSize(14); doc.text('AMC - Device Tracking Report', 14, 15);
-  doc.setFontSize(10); doc.text(data.title, 14, 22);
-  doc.autoTable({
+  await savePdfA4({ file: `Tracking_${Date.now()}.pdf`, title: 'Device Tracking Report', headFill: [245, 158, 11], repeatCols: [0, 1],
+    lines: [data.title],
     head: [['Date', 'Time', 'Student', 'Roll', 'Course', 'PIN', 'Device', 'Status']],
-    body: data.records.map(r => { const dt = r.marked_at ? new Date(r.marked_at) : null; return [dt ? dt.toLocaleDateString('en-GB') : '-', dt ? dt.toLocaleTimeString('en-GB') : '-', r.students?.name || '-', r.students?.class_roll || '-', r.attendance_sessions?.course_code || '-', r.attendance_sessions?.pin || '-', shortDevice(r.device_id), r.status]; }),
-    startY: 30, styles: { fontSize: 8, font: 'HindSiliguri' }, headStyles: { fillColor: [245, 158, 11], font: 'HindSiliguri' }
-  });
-  doc.save(`Tracking_${Date.now()}.pdf`);
+    body: data.records.map(r => { const dt = r.marked_at ? new Date(r.marked_at) : null; return [dt ? dt.toLocaleDateString('en-GB') : '-', dt ? dt.toLocaleTimeString('en-GB') : '-', r.students?.name || '-', r.students?.class_roll || '-', r.attendance_sessions?.course_code || '-', r.attendance_sessions?.pin || '-', shortDevice(r.device_id), r.status]; }) });
 }
 
 // ============================================================
@@ -4316,7 +4476,7 @@ async function studentLogin() {
   
   try {
     const { data, error } = await db.from('students')
-      .select('id, name, session, year, class_roll, reg_no, status')
+      .select('id, name, session, year, class_roll, reg_no, status, is_irregular')
       .eq('session', session)
       .or(`class_roll.eq.${roll},reg_no.eq.${roll}`)
       .maybeSingle();
@@ -4353,12 +4513,15 @@ async function loadStudentData() {
   const student = currentStudent;
 
   await getCourseInfoMap();
-  const { data: mySessions } = await db.from('attendance_sessions').select('id, course_code, date').eq('session', student.session).eq('year', student.year);
+  let msq = db.from('attendance_sessions').select('id, course_code, date').eq('year', student.year);
+if (!student.is_irregular) msq = msq.eq('session', student.session);
+const { data: mySessions } = await msq.limit(2000);
   const total = mySessions?.length || 0;
   const { data: records } = await db.from('attendance_records').select('status, session_id, attendance_sessions(course_code, date)').eq('student_id', student.id);
-  const att = records?.filter(r => r.status === 'present' || r.status === 'late').length || 0;
+  const idSet = new Set((mySessions || []).map(s => s.id));
+const att = records?.filter(r => idSet.has(r.session_id) && (r.status === 'present' || r.status === 'late')).length || 0;
   const pct = total > 0 ? ((att / total) * 100).toFixed(1) : 0;
-  const pC = pct >= 70 ? 'emerald' : pct >= 50 ? 'amber' : 'red';
+  const pC = pct >= 75 ? 'emerald' : pct >= PASS_PCT ? 'amber' : 'red';
 
   const { data: notices } = await db.from('notices').select('*').or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`).order('created_at', { ascending: false }).limit(5);
 
@@ -4371,13 +4534,13 @@ async function loadStudentData() {
     view: 'student',
     session: student.session,
     year: student.year,
-    filterInfo: `${student.session} · ${student.year}`
+    filterInfo: `${yearLabel(student.year)}`
   };
 
   document.getElementById('studentContent').innerHTML = `
     <div class="bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl p-5 mb-6 text-center">
       <p class="text-gray-500 dark:text-gray-400 text-sm">${escapeHtml(student.name)}</p>
-      <p class="text-xs text-gray-400 dark:text-gray-500">${escapeHtml(student.session)} · ${escapeHtml(student.year)} · Roll <span class="num-display">${escapeHtml(student.class_roll)}</span></p>
+      <p class="text-xs text-gray-400 dark:text-gray-500">${escapeHtml(student.session)} · ${escapeHtml(yearLabel(student.year))} · Roll <span class="num-display">${escapeHtml(student.class_roll)}</span></p>
     </div>
     <div class="bg-${pC}-50 dark:bg-${pC}-900/30 rounded-2xl p-6 mb-6 text-center shadow-sm">
       <p class="text-5xl font-bold text-${pC}-600 dark:text-${pC}-300 num-display mb-1">${pct}%</p>
@@ -4535,7 +4698,7 @@ function renderTodayRoutine(force) {
       <div class="flex-1 min-w-0">${slots[slot].map(r => `<div class="today-item ${isMine(r) ? 'mine' : ''}">
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <b class="text-sm dark:text-white break-words">${escapeHtml(courseLabel(r.course_code, r.course_name))}</b>
-          <span class="flex gap-1 items-center">${r.room ? `<span class="chip chip-day">🚪 ${escapeHtml(r.room)}</span>` : ''}${isMine(r) ? '<span class="chip bg-indigo-600 text-white">You</span>' : ''}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(r.session)} · ${escapeHtml(r.year)}</span></span>
+          <span class="flex gap-1 items-center">${r.room ? `<span class="chip chip-day">🚪 ${escapeHtml(r.room)}</span>` : ''}${isMine(r) ? '<span class="chip bg-indigo-600 text-white">You</span>' : ''}<span class="chip bg-gray-100 text-gray-600 num-display">${escapeHtml(yearLabel(r.year))}</span></span>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">👨‍🏫 ${escapeHtml(r.teacher_name)}</p>
       </div>`).join('')}</div>
