@@ -1603,9 +1603,9 @@ async function loadStudentSuggestions(query) {
   }
   try {
     const cols = 'id, name, class_roll, reg_no, session, is_irregular';
-    let { data: hit } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, q, false)).limit(5);
+    let { data: hit } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, q, false, s.session_year)).limit(5);
     if (!hit || !hit.length) {
-      const r = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, q, true)).limit(10);
+      const r = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, q, true, s.session_year)).limit(10);
       hit = r.data || [];
     }
     renderSuggestions(hit);
@@ -1670,11 +1670,11 @@ async function findAndSubmit() {
     }
   } else {
     const cols = 'id, name, class_roll, reg_no, session, is_irregular';
-    const { data: exact } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, roll, false)).limit(5);
+    const { data: exact } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, roll, false, s.session_year)).limit(5);
     if (exact && exact.length > 1) { renderSuggestions(exact); toastInfo('Several students match — please pick yours'); return; }
     if (exact && exact.length === 1) student = exact[0];
     else {
-      const { data: part } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, roll, true)).limit(2);
+      const { data: part } = await db.from('students').select(cols).eq('year', s.year).eq('status', 'active').or(rollFilter(s.session, roll, true, s.session_year)).limit(2);
       if (part && part.length === 1) student = part[0];
       else if (part && part.length > 1) { renderSuggestions(part); toastInfo('Several students match — please pick yours'); return; }
     }
@@ -2783,6 +2783,7 @@ el.innerHTML = `
 <p class="text-xs text-gray-600 dark:text-gray-300 mb-3">Regular students move up. <b>Irregular (I-roll)</b> students stay in their class. Tick students who did not sit the final exam to keep them in the same class (they become irregular with an I- roll). The last class of each course becomes <b>Graduated</b>.</p>
 <div class="flex gap-2 flex-wrap">
 <input id="proSession" placeholder="Session (e.g. 2024-25)" list="sessionOptions" class="border-2 rounded-xl p-3 flex-1 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+<input id="proSessionYear" type="number" placeholder="Year (YYYY)" class="border-2 rounded-xl p-3 w-32 dark:bg-gray-700 dark:text-white dark:border-gray-600">
 <button onclick="loadPromotePreview()" class="bg-teal-600 text-white px-5 py-3 rounded-xl font-bold btn-pop">🔍 Load</button>
 </div>
 </div>
@@ -2816,15 +2817,19 @@ let pendingExcelStudents = null;
 let promoteState = null;
 async function loadPromotePreview() {
   const session = document.getElementById('proSession').value.trim();
+  const syInput = document.getElementById('proSessionYear');
+  if (!syInput || !syInput.value) return toastWarning('Enter Session Year (YYYY)');
+  const session_year = parseInt(syInput.value, 10);
+
   const area = document.getElementById('promoteArea');
   const err = sessionError(session);
   if (err) { area.innerHTML = `<p class="text-red-500 text-center py-3">${escapeHtml(err)}</p>`; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const all = await fetchAll((a, b) => db.from('students').select('id, class_roll, name, year, status, is_irregular').eq('session', session).eq('status', 'active').range(a, b));
+    const all = await fetchAll((a, b) => db.from('students').select('id, class_roll, name, year, status, is_irregular').eq('session', session).eq('session_year', session_year).eq('status', 'active').range(a, b));
     if (!all.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No active students in this session</p>'; return; }
     const years = ALL_YEAR_CODES.filter(y => all.some(s => s.year === y));
-    promoteState = { session, all, year: years[years.length - 1] };
+    promoteState = { session, session_year, all, year: years[years.length - 1] };
     area.innerHTML = `<div class="bg-white dark:bg-gray-700 border-2 border-teal-200 dark:border-teal-700 rounded-xl p-4 space-y-3">
       <div><label class="block text-xs font-bold mb-1 dark:text-white">Current class</label>
       <select id="proYear" onchange="renderPromoteList(this.value)" class="w-full border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500">${years.map(y => `<option value="${attrEsc(y)}"${y === promoteState.year ? ' selected' : ''}>${escapeHtml(yearLabel(y))} (${all.filter(s => s.year === y).length})</option>`).join('')}</select></div>
@@ -2837,31 +2842,59 @@ function renderPromoteList(year) {
   st.year = year;
   const list = sortStudents(st.all.filter(s => s.year === year));
   const next = nextYearOf(year);
+  const isTerminal = !next; // final class (XII, 4th year, Masters Final)
+
   const reg = list.filter(s => !s.is_irregular), irr = list.filter(s => s.is_irregular);
+
   document.getElementById('promoteList').innerHTML = `
-    <div class="bg-teal-50 dark:bg-teal-900/30 rounded-xl p-3 text-sm dark:text-white">
-      ${next ? `<b>${escapeHtml(yearLabel(year))}</b> → <b>${escapeHtml(yearLabel(next))}</b>` : `<b>${escapeHtml(yearLabel(year))}</b> is the last class: regular students become <b>Graduated</b>`}
-      · Regular: <b class="num-display">${reg.length}</b> · Irregular (stay): <b class="num-display">${irr.length}</b>
+    <div class="bg-teal-50 dark:bg-teal-900/30 rounded-xl p-3 text-sm dark:text-white mb-2">
+      ${isTerminal
+        ? `<b>${escapeHtml(yearLabel(year))}</b> is the final class. Checking them will <b>Archive (Graduate)</b> them.`
+        : `<b>${escapeHtml(yearLabel(year))}</b> → <b>${escapeHtml(yearLabel(next))}</b>. Uncheck students who will stay back (become irregular).`}
+      <br>Regular: <b class="num-display">${reg.length}</b> · Irregular: <b class="num-display">${irr.length}</b>
     </div>
-    <p class="text-xs text-gray-500 dark:text-gray-400 my-2">✅ Tick = <b>stay in this class</b> (did not sit the final exam)</p>
-    <div class="max-h-80 overflow-y-auto space-y-1">
-      ${list.map(s => s.is_irregular
-        ? `<div class="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg text-sm dark:text-white"><span class="chip chip-none">Irregular</span><span class="num-display">${escapeHtml(s.class_roll)}</span> ${escapeHtml(s.name)}<span class="ml-auto text-xs text-gray-400">stays</span></div>`
-        : `<label class="flex items-center gap-2 bg-gray-50 dark:bg-gray-600 px-3 py-2 rounded-lg text-sm dark:text-white cursor-pointer"><input type="checkbox" class="pro-stay" value="${attrEsc(s.id)}"><span class="num-display">${escapeHtml(s.class_roll)}</span> ${escapeHtml(s.name)}</label>`).join('')}
+    <div class="max-h-80 overflow-y-auto space-y-1 pr-1">
+      ${list.map(s => `
+        <label class="flex items-center gap-2 bg-gray-50 dark:bg-gray-600 px-3 py-2 rounded-lg text-sm dark:text-white cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-500 transition">
+          <input type="checkbox" class="pro-stay w-5 h-5" value="${attrEsc(s.id)}" checked>
+          <span class="num-display ${s.is_irregular ? 'text-amber-600 dark:text-amber-400 font-bold' : ''}">${escapeHtml(s.class_roll)}</span>
+          ${escapeHtml(s.name)}
+          ${s.is_irregular ? '<span class="chip chip-none ml-auto">Irregular</span>' : ''}
+        </label>`).join('')}
     </div>
-    <button onclick="runPromote()" class="mt-3 w-full bg-gradient-to-r from-teal-600 to-emerald-600 text-white py-3 rounded-xl font-bold btn-pop shadow-lg">⬆️ Promote now</button>`;
+    <button onclick="runPromote(${isTerminal})" class="mt-4 w-full bg-gradient-to-r ${isTerminal ? 'from-indigo-600 to-purple-600' : 'from-teal-600 to-emerald-600'} text-white py-3 rounded-xl font-bold btn-pop shadow-lg">
+      ${isTerminal ? '📦 Archive Selected (Graduate)' : '⬆️ Promote Selected'}
+    </button>`;
 }
-async function runPromote() {
+async function runPromote(isArchive = false) {
   const st = promoteState; if (!st) return;
-  const stay = [...document.querySelectorAll('.pro-stay:checked')].map(c => c.value);
+
+  // unchecked students are the ones who STAY
+  const allCheckboxes = [...document.querySelectorAll('.pro-stay')];
+  const stayIds = allCheckboxes.filter(c => !c.checked).map(c => c.value);
+  const promoteCount = allCheckboxes.filter(c => c.checked).length;
+
   const next = nextYearOf(st.year);
-  const ok = await confirmAction('Promote this batch?', `${st.session}: ${yearLabel(st.year)} ${next ? '→ ' + yearLabel(next) : '→ Graduated'}. ${stay.length} student(s) will stay as irregular. This changes student records.`, 'Yes, promote', '#0d9488');
+  const msg = isArchive
+    ? `${promoteCount} students will be Archived (Graduated). ${stayIds.length} will stay back as Irregular.`
+    : `${promoteCount} students will be promoted to ${yearLabel(next)}. ${stayIds.length} will stay back as Irregular.`;
+
+  const ok = await confirmAction(isArchive ? 'Archive Batch?' : 'Promote Batch?', msg, 'Yes, proceed', '#0d9488');
   if (!ok) return;
+
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('admin_promote_students', { p_session: st.session, p_from_year: st.year, p_stay_ids: stay });
-    if (error || !data || !data.ok) return toastError((data && data.message) || (error && error.message) || 'Promote failed');
-    toastSuccess(data.to_year ? `${data.promoted} moved up, ${data.new_stay} stayed` : `${data.graduated} graduated, ${data.new_stay} stayed`);
+    const { data, error } = await db.rpc('admin_promote_students', {
+      p_session: st.session,
+      p_from_year: st.year,
+      p_from_session_year: st.session_year,
+      p_stay_ids: stayIds,
+      p_is_archive: isArchive
+    });
+
+    if (error || !data || !data.ok) return toastError((data && data.message) || (error && error.message) || 'Failed');
+
+    toastSuccess(isArchive ? `${data.graduated} students graduated` : `${data.promoted} students promoted`);
     cohortChoice = {};
     loadPromotePreview();
   } finally { hideGlobalLoader(); }
@@ -2987,7 +3020,7 @@ async function loadStudentList() {
   const year = document.getElementById('lstYear')?.value;
   const status = document.getElementById('lstStatus')?.value;
   const search = document.getElementById('lstSearch')?.value.trim().toLowerCase();
-  let q = db.from('students').select('id, session, year, class_roll, reg_no, name, status, phone, is_irregular');
+  let q = db.from('students').select('id, session, session_year, year, class_roll, reg_no, name, status, phone, is_irregular');
   if (session) q = q.eq('session', session);
   if (year) q = q.eq('year', year);
   if (status) q = q.eq('status', status);
@@ -3005,7 +3038,7 @@ async function loadStudentList() {
         <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-xl flex justify-between items-center gap-2">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2"><span>${icons[s.status] || '✅'}</span><b class="text-sm dark:text-white">${escapeHtml(s.name)}</b>${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</div>
-            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">Roll: <span class="num-display">${escapeHtml(s.class_roll)}</span> · Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span> · ${escapeHtml(s.session)} · ${escapeHtml(yearLabel(s.year))}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">Roll: <span class="num-display">${escapeHtml(s.class_roll)}</span> · Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span> · <span class="text-indigo-600 dark:text-indigo-400 font-bold">${escapeHtml(s.session)}${s.session_year ? ` (${escapeHtml(s.session_year)})` : ''}</span> · ${escapeHtml(yearLabel(s.year))}</p>
           </div>
           <button class="student-action-btn bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-xs" data-id="${escapeHtml(s.id)}">⚙️</button>
         </div>`).join('')}
@@ -3124,11 +3157,11 @@ function showReportTab(tab) {
   const box = 'bg-gray-50 dark:bg-gray-700 p-4 rounded-xl';
   const btn = (fn, label, c) => `<button onclick="${fn}" class="bg-${c}-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">${label}</button>`;
   if (tab === 'attendance') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="arSession" placeholder="Session" list="sessionOptions" class="${inp} flex-1">${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><label class="flex items-center gap-2 text-xs font-semibold mb-3 dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="arSession" placeholder="Session" list="sessionOptions" class="${inp} flex-1">${yr('arYear')}<input id="arSessionYear" type="number" placeholder="Year (YYYY) e.g. 2026" class="${inp}"><button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><label class="flex items-center gap-2 text-xs font-semibold mb-3 dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
   } else if (tab === 'exam') {
     el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="erSession" placeholder="Session" list="sessionOptions" class="${inp}">${yr('erYear')}<input id="erCourse" placeholder="Course code" class="${inp}"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamExcel()', '📊 Excel', 'emerald')}${btn('exportExamPDF()', '📄 PDF', 'red')}</div></div><div id="examReportArea"></div></div>`;
   } else if (tab === 'individual') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="irSession" placeholder="Session" list="sessionOptions" class="${inp}">${yr('irYear')}<input id="irRoll" placeholder="Roll / Reg" class="${inp} flex-1"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportIndividualExcel()', '📊 Excel', 'emerald')}${btn('exportIndividualPDF()', '📄 PDF', 'red')}</div></div><div id="individualReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="irSession" placeholder="Session" list="sessionOptions" class="${inp}">${yr('irYear')}<input id="irSessionYear" type="number" placeholder="Year (YYYY)" class="${inp}"><input id="irRoll" placeholder="Roll / Reg" class="${inp} flex-1"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportIndividualExcel()', '📊 Excel', 'emerald')}${btn('exportIndividualPDF()', '📄 PDF', 'red')}</div></div><div id="individualReportArea"></div></div>`;
   } else if (tab === 'examwise') {
     el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="erxSession" placeholder="Session" list="sessionOptions" onchange="erxFillExams()" class="${inp}">${yr('erxYear').replace('<select ', '<select onchange="erxFillExams()" ')}<select id="erxExam" class="${inp}"><option value="">Exam</option></select><button onclick="loadExamwiseReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamwiseExcel()', '📊 Excel', 'emerald')}${btn('exportExamwisePDF()', '📄 PDF', 'red')}</div></div><div id="examwiseReportArea"></div></div>`;
     erxFillExams();
@@ -3139,13 +3172,21 @@ let currentAttendanceData = null;
 async function loadAttendanceReport() {
   const session = document.getElementById('arSession').value.trim();
   const year = document.getElementById('arYear').value;
+
+  // session-year input
+  const syInput = document.getElementById('arSessionYear');
+  if (!syInput || !syInput.value) return toastWarning('Please enter Session Year (YYYY)');
+  const session_year = parseInt(syInput.value, 10);
+
   const area = document.getElementById('attendanceReportArea');
   currentAttendanceData = null;
   if (!session || !year) { area.innerHTML = '<p class="text-red-500 text-center py-4">Enter session and class</p>'; return; }
+
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const sessions = await fetchAll((a, b) => db.from('attendance_sessions').select('id, course_code').eq('session', session).eq('year', year).range(a, b));
-    if (!sessions.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No classes held for this session and class</p>'; return; }
+    const sessions = await fetchAll((a, b) => db.from('attendance_sessions').select('id, course_code').eq('session', session).eq('year', year).eq('session_year', session_year).range(a, b));
+    if (!sessions.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No classes held for this session and class/year</p>'; return; }
+
     const records = await fetchByIds('attendance_records', 'student_id, session_id, status', 'session_id', sessions.map(s => s.id));
     const held = {}, codeOf = {};
     sessions.forEach(s => { held[s.course_code] = (held[s.course_code] || 0) + 1; codeOf[s.id] = s.course_code; });
@@ -3157,14 +3198,16 @@ async function loadAttendanceReport() {
       const c = codeOf[r.session_id];
       (by[r.student_id] = by[r.student_id] || {})[c] = ((by[r.student_id] || {})[c] || 0) + 1;
     });
-    const students = await cohortStudents(session, records.map(r => r.student_id));
+
+    // classStudents now takes session_year
+    const students = await classStudents(session, year, 'id, class_roll, reg_no, name, is_irregular', session_year);
     const totalHeld = courses.reduce((t, c) => t + held[c], 0);
-    const report = students.filter(s => s.status === 'active' || by[s.id]).map(stu => {
+    const report = students.map(stu => {
       const cc = by[stu.id] || {};
       const total = courses.reduce((t, c) => t + (cc[c] || 0), 0);
       return { class_roll: stu.class_roll, reg_no: stu.reg_no || '', name: stu.name, irregular: !!stu.is_irregular, courseCounts: cc, total, pct: pctOf(total, totalHeld) };
     });
-    currentAttendanceData = { session, year, courses, displayHeaders: courses.map(c => courseLabel(c)), held, totalHeld, report };
+    currentAttendanceData = { session, year, session_year, courses, displayHeaders: courses.map(c => courseLabel(c)), held, totalHeld, report };
     renderAttendanceReport();
   } catch (err) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(err.message)}</p>`; }
 }
@@ -3243,6 +3286,22 @@ function yearLabel(code) {
   for (const [cat, g] of Object.entries(YEAR_GROUPS)) { const f = g.find(x => x[1] === code); if (f) return cat + ' · ' + f[0]; }
   return code || '';
 }
+// Which session_year (YYYY) values have active students in a given class/year
+async function getAvailableSessionYears(year) {
+  try {
+    const { data, error } = await db.from('students')
+      .select('session_year')
+      .eq('year', year)
+      .eq('status', 'active');
+    if (error) throw error;
+    // unique years, newest first (e.g. 2027, 2026)
+    const years = [...new Set((data || []).map(s => s.session_year))].filter(Boolean).sort((a, b) => b - a);
+    return years;
+  } catch (e) {
+    console.error('Error fetching session years:', e);
+    return [];
+  }
+}
 function yearOptionsHtml(sel) { return ALL_YEAR_CODES.map(y => `<option value="${attrEsc(y)}"${y === sel ? ' selected' : ''}>${escapeHtml(yearLabel(y))}</option>`).join(''); }
 function nextYearOf(code) {
   for (const g of Object.values(YEAR_GROUPS)) { const i = g.findIndex(x => x[1] === code); if (i >= 0) return i + 1 < g.length ? g[i + 1][1] : null; }
@@ -3286,32 +3345,70 @@ async function cohortStudents(session, extraIds, cols) {
   return sortStudents(base.concat(extra));
 }
 // Students attending a class (year): the chosen batch + irregular students of that year
-async function classStudents(session, year, cols) {
-  const { data, error } = await db.from('students').select(cols || 'id, name, class_roll, reg_no, session, is_irregular')
-    .eq('year', year).eq('status', 'active').or(`session.eq.${session},is_irregular.eq.true`).limit(2000);
+// Students attending a class (year). With session_year: only that cohort year. Without: old behaviour.
+async function classStudents(session, year, cols, session_year) {
+  if (!session_year) {
+    // fallback: old behaviour when session_year is not supplied
+    const { data, error } = await db.from('students').select(cols || 'id, name, class_roll, reg_no, session, is_irregular')
+      .eq('year', year).eq('status', 'active').or(`session.eq.${session},is_irregular.eq.true`).limit(2000);
+    if (error) throw error;
+    return data || [];
+  }
+
+  // new: students of the specific session_year
+  const { data, error } = await db.from('students').select(cols || 'id, name, class_roll, reg_no, session, is_irregular, session_year')
+    .eq('year', year)
+    .eq('session_year', session_year)
+    .eq('status', 'active').limit(2000);
   if (error) throw error;
   return data || [];
 }
-function rollFilter(session, q, partial) {
+function rollFilter(session, q, partial, session_year) {
   q = String(q).replace(/[,()*%]/g, '');
   const m = partial ? `class_roll.ilike.%${q}%,reg_no.ilike.%${q}%,name.ilike.%${q}%` : `class_roll.eq.${q},reg_no.eq.${q}`;
+
+  if (session_year) {
+    return `and(session_year.eq.${session_year},or(${m}))`;
+  }
+  // fallback: original behaviour (batch + irregulars)
   return `and(session.eq.${session},or(${m})),and(is_irregular.eq.true,or(${m}))`;
 }
 let cohortChoice = {};
 let pickedStudent = null;
-async function resolveCohort(year) {
-  if (cohortChoice[year]) return cohortChoice[year];
-  const { data, error } = await db.from('students').select('session').eq('year', year).eq('status', 'active').eq('is_irregular', false).limit(1000);
+async function resolveCohort(year, session_year) {
+  const key = session_year ? `${year}_${session_year}` : String(year);
+  if (cohortChoice[key]) return cohortChoice[key];
+
+  let q = db.from('students')
+    .select('session')
+    .eq('year', year)
+    .eq('status', 'active')
+    .eq('is_irregular', false); // look for the Regular batch's session
+  if (session_year) q = q.eq('session_year', session_year);
+  const { data, error } = await q.limit(1000);
+
   if (error) throw error;
   const list = [...new Set((data || []).map(r => r.session))].sort().reverse();
-  if (!list.length) throw new Error('No active students found for ' + yearLabel(year));
+
+  if (!list.length) {
+    if (!session_year) throw new Error('No active students found for ' + yearLabel(year));
+    return 'ALL'; // no Regular students in this session_year
+  }
   let pick = list[0];
   if (list.length > 1) {
-    const r = await Swal.fire({ title: 'Select batch (session)', input: 'select', inputOptions: Object.fromEntries(list.map(x => [x, x])), inputValue: list[0], showCancelButton: true, confirmButtonText: 'OK', confirmButtonColor: '#4f46e5' });
+    const r = await Swal.fire({
+      title: 'Select batch (session)',
+      input: 'select',
+      inputOptions: Object.fromEntries(list.map(x => [x, x])),
+      inputValue: list[0],
+      showCancelButton: true,
+      confirmButtonText: 'OK',
+      confirmButtonColor: '#4f46e5'
+    });
     if (!r.isConfirmed) throw new Error('Cancelled');
     pick = r.value;
   }
-  cohortChoice[year] = pick;
+  cohortChoice[key] = pick;
   return pick;
 }
 
@@ -3467,18 +3564,19 @@ let currentIndividualData = null;
 async function loadIndividualReport() {
   const session = document.getElementById('irSession').value.trim();
   const year = document.getElementById('irYear').value;
+  const session_year = parseInt(document.getElementById('irSessionYear').value, 10);
   const roll = document.getElementById('irRoll').value.trim().replace(/[,()*%]/g, '');
   const area = document.getElementById('individualReportArea');
   currentIndividualData = null;
-  if (!session || !year || !roll) { area.innerHTML = '<p class="text-red-500 text-center py-4">Fill all fields</p>'; return; }
+  if (!session || !year || !roll || !session_year) { area.innerHTML = '<p class="text-red-500 text-center py-4">Fill all fields (including Year)</p>'; return; }
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const cols = 'id, name, class_roll, reg_no, session, year, is_irregular';
-    let { data: found } = await db.from('students').select(cols).eq('session', session).or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(2);
+    const cols = 'id, name, class_roll, reg_no, session, session_year, year, is_irregular';
+    let { data: found } = await db.from('students').select(cols).eq('session', session).eq('session_year', session_year).or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(2);
     if (!found || !found.length) { const r = await db.from('students').select(cols).eq('is_irregular', true).or(`class_roll.eq.${roll},reg_no.eq.${roll}`).limit(2); found = r.data || []; }
     if (!found.length) { area.innerHTML = '<p class="text-red-500 text-center py-4">❌ Student not found</p>'; return; }
     const student = found[0];
-    const sessions = await fetchAll((a, b) => { let x = db.from('attendance_sessions').select('id, course_code, date').eq('year', year); if (!student.is_irregular) x = x.eq('session', session); return x.order('date').range(a, b); });
+    const sessions = await fetchAll((a, b) => { let x = db.from('attendance_sessions').select('id, course_code, date').eq('year', year); if (!student.is_irregular) x = x.eq('session', session).eq('session_year', session_year); return x.order('date').range(a, b); });
     const recs = await fetchAll((a, b) => db.from('attendance_records').select('session_id, status').eq('student_id', student.id).range(a, b));
     const recMap = {}; recs.forEach(r => { recMap[r.session_id] = r.status; });
     const dMap = {}, held = {}, att = {};
@@ -3490,7 +3588,7 @@ async function loadIndividualReport() {
     });
     const dates = Object.keys(dMap).sort(), cCodes = Object.keys(held).sort();
     const totalHeld = cCodes.reduce((t, c) => t + held[c], 0), totalAtt = cCodes.reduce((t, c) => t + (att[c] || 0), 0), pct = pctOf(totalAtt, totalHeld);
-    currentIndividualData = { student, session, year, courseCodes: cCodes, dates, dateMap: dMap, held, att, totalHeld, totalAtt, pct };
+    currentIndividualData = { student, session, session_year, year, courseCodes: cCodes, dates, dateMap: dMap, held, att, totalHeld, totalAtt, pct };
     await getCourseInfoMap();
     const th = 'p-2 border dark:border-gray-600 dark:text-white', low = pct < PASS_PCT;
     area.innerHTML = `
@@ -3672,13 +3770,22 @@ async function showTeacherTab(tab) {
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
         <h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3>
-        <select id="atCourseSelect" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">${courseOpts}</select>
+        <select id="atCourseSelect" onchange="updateTakeAttendanceYears()" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">${courseOpts}</select>
+
+        <!-- session_year dropdown -->
+        <select id="atSessionYear" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <option value="">Select Course First</option>
+        </select>
+
         <input type="date" id="atDate" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         <button onclick="generatePin()" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">🎲 Generate PIN</button>
         <div id="pinDisplay"></div>
       </div>`;
     const dateInput = document.getElementById('atDate');
     if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+
+    // load session years for the first course once the page is rendered
+    setTimeout(updateTakeAttendanceYears, 100);
   }
   else if (tab === 'liveReport') {
     el.innerHTML = `<div class="space-y-4"><h3 class="text-lg font-bold dark:text-white">🔴 Live Attendance</h3><p class="text-xs text-gray-500 dark:text-gray-400">💡 Updates every 5 seconds</p><select id="liveSessionSelect" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"></select><div id="liveCount" class="text-center bg-red-50 dark:bg-red-900/30 rounded-2xl p-6"><p class="text-6xl font-bold text-red-600 pulse-live num-display">0</p><p class="text-gray-500 dark:text-gray-400">Present</p></div><div id="liveList" class="mt-4 space-y-1 max-h-96 overflow-y-auto"></div></div>`;
@@ -3970,17 +4077,54 @@ async function closeActivePinFromBanner(sessionId) {
   } finally { hideGlobalLoader(); }
 }
 
+async function updateTakeAttendanceYears() {
+  const sel = document.getElementById('atCourseSelect');
+  const yearSel = document.getElementById('atSessionYear');
+  if (!sel || !yearSel || !sel.value) return;
+
+  const year = sel.value.split('|')[1];
+  yearSel.innerHTML = '<option value="">Loading...</option>';
+
+  const years = await getAvailableSessionYears(year);
+  if (years.length === 0) {
+    yearSel.innerHTML = '<option value="">No active students</option>';
+    return;
+  }
+
+  yearSel.innerHTML = '<option value="">Select Year (YYYY)</option>' +
+    years.map(y => `<option value="${y}">${y}</option>`).join('');
+
+  // only one year -> auto-select
+  if (years.length === 1) {
+    yearSel.value = years[0];
+  }
+}
+
 async function generatePin() {
   const sel = document.getElementById('atCourseSelect');
-  if (!sel || !sel.value) return toastWarning('Select course');
-  const [course_code, year] = sel.value.split('|');
+  const sessionYearStr = document.getElementById('atSessionYear').value;
   const date = document.getElementById('atDate').value;
+
+  if (!sel || !sel.value) return toastWarning('Select course');
+  if (!sessionYearStr) return toastWarning('Select Year (YYYY)');
   if (!date) return toastWarning('Select date');
+
+  const [course_code, year] = sel.value.split('|');
+  const session_year = parseInt(sessionYearStr, 10);
+
   let session;
-  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
+  try { session = await resolveCohort(year, session_year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
+
   showGlobalLoader();
   try {
-    const { data, error } = await db.rpc('t_create_session', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course_code, p_date: date });
+    const { data, error } = await db.rpc('t_create_session', {
+      p_token: currentTeacher.token,
+      p_session: session,
+      p_year: year,
+      p_course_code: course_code,
+      p_date: date,
+      p_session_year: session_year
+    });
     if (error || !data || !data.ok) return toastError((data && data.message) || 'PIN generation failed');
     toastSuccess('PIN generated');
     renderPinDisplay(data.pin, data.session_id, 45, new Date(Date.now() + 45 * 60000).toISOString());
@@ -4193,35 +4337,52 @@ async function loadMarkEntry() {
   if (examVal === 'Others' && !customExam) return toastWarning('Enter exam name');
   const [course, year] = cv.split('|');
   if (!year) return toastWarning('Course info incomplete');
+
+  // session-year selector (YYYY)
+  const years = await getAvailableSessionYears(year);
+  if (!years.length) return toastWarning('No active students found for this class');
+
+  const { value: selectedYear } = await Swal.fire({
+    title: 'Select Year (YYYY)',
+    input: 'select',
+    inputOptions: Object.fromEntries(years.map(y => [y, y])),
+    inputValue: years[0],
+    showCancelButton: true,
+    confirmButtonText: 'Load',
+    confirmButtonColor: '#4f46e5'
+  });
+  if (!selectedYear) return;
+  const session_year = parseInt(selectedYear, 10);
+
   let session;
-  try { session = await resolveCohort(year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
+  try { session = await resolveCohort(year, session_year); } catch (e) { if (e.message !== 'Cancelled') toastError(e.message); return; }
 
   showGlobalLoader();
   try {
     let sRaw, sE;
-    try { sRaw = await classStudents(session, year, 'id, name, class_roll, reg_no, session, is_irregular'); } catch (e) { sE = e; }
+    try { sRaw = await classStudents(session, year, 'id, name, class_roll, reg_no, session, is_irregular', session_year); } catch (e) { sE = e; }
     if (sE) return toastError(sE.message);
     const students = sortStudents(sRaw || []);
     if (!students.length) { toastWarning('No students'); return; }
 
     let existing;
     if (currentTeacher?.token) {
-      const { data: er } = await db.rpc('t_get_marks', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course, p_exam_type: exam });
+      const { data: er } = await db.rpc('t_get_marks', { p_token: currentTeacher.token, p_session: session, p_year: year, p_course_code: course, p_exam_type: exam, p_session_year: session_year });
       existing = (er || []).map(m => ({ student_id: m.student_id, marks: m.mark_value, is_published: m.is_published }));
     } else {
-      ({ data: existing } = await db.from('marks').select('student_id, marks, is_published').eq('session', session).eq('year', year).eq('course_code', course).eq('exam_type', exam));
+      ({ data: existing } = await db.from('marks').select('student_id, marks, is_published').eq('session', session).eq('year', year).eq('session_year', session_year).eq('course_code', course).eq('exam_type', exam));
     }
     const mMap = {};
     let anyPublished = false;
     existing?.forEach(m => { mMap[m.student_id] = m.marks; if (m.is_published) anyPublished = true; });
 
-    currentMarkContext = { course, session, year, exam, students, mMap, isPublished: anyPublished };
+    currentMarkContext = { course, session, year, session_year, exam, students, mMap, isPublished: anyPublished };
     const isMobile = window.innerWidth < 768;
     const area = document.getElementById('markEntryArea');
     area.innerHTML = `
       <div class="space-y-3">
         <div class="flex justify-between items-center flex-wrap gap-2">
-          <div><p class="font-bold dark:text-white"><span class="num-display">${escapeHtml(course)}</span> · <span class="num-display">${escapeHtml(exam)}</span></p><p class="text-xs text-gray-500 dark:text-gray-400"><span class="num-display">${students.length}</span> students · <span class="num-display">${session}</span> · ${escapeHtml(yearLabel(year))}</p></div>
+          <div><p class="font-bold dark:text-white"><span class="num-display">${escapeHtml(course)}</span> · <span class="num-display">${escapeHtml(exam)}</span></p><p class="text-xs text-gray-500 dark:text-gray-400"><span class="num-display">${students.length}</span> students · <span class="num-display">${session}</span> · ${escapeHtml(yearLabel(year))} · <span class="num-display">${session_year}</span></p></div>
           <div class="flex gap-2 flex-wrap">
             <button onclick="downloadMarksTemplate()" class="bg-gray-500 text-white px-4 py-2 rounded-lg btn-pop text-sm">📥 Template</button>
             <button onclick="exportMarksExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-lg btn-pop text-sm">📊 Excel</button>
@@ -4279,7 +4440,7 @@ async function saveMark(studentId, marks, inputEl) {
     return toastWarning('Marks must be 0-100');
   }
   if (ctx.mMap[studentId] === num) return;
-  const { data, error } = await db.rpc(currentTeacher?.token ? 't_save_mark' : 'save_mark', { ...(currentTeacher?.token ? { p_token: currentTeacher.token } : { p_teacher_id: null }), p_session: ctx.session, p_year: ctx.year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: studentId, p_marks: num });
+  const { data, error } = await db.rpc(currentTeacher?.token ? 't_save_mark' : 'save_mark', { ...(currentTeacher?.token ? { p_token: currentTeacher.token } : { p_teacher_id: null }), p_session: ctx.session, p_year: ctx.year, p_session_year: ctx.session_year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: studentId, p_marks: num });
   if (error || !data?.ok) {
     if (inputEl) inputEl.style.background = '#fecaca';
     setTimeout(() => { if (inputEl) inputEl.style.background = ''; }, 1500);
@@ -4361,7 +4522,7 @@ async function importMarksExcel() {
         if (mv === '' || mv === undefined || mv === null) continue;
         const num = Number(banglaToEnglish(mv));
         if (isNaN(num) || num < 0 || num > 100) { iv++; continue; }
-        const { error } = await db.rpc(currentTeacher?.token ? 't_save_mark' : 'save_mark', { ...(currentTeacher?.token ? { p_token: currentTeacher.token } : { p_teacher_id: null }), p_session: ctx.session, p_year: ctx.year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: sid, p_marks: num });
+        const { error } = await db.rpc(currentTeacher?.token ? 't_save_mark' : 'save_mark', { ...(currentTeacher?.token ? { p_token: currentTeacher.token } : { p_teacher_id: null }), p_session: ctx.session, p_year: ctx.year, p_session_year: ctx.session_year, p_course_code: ctx.course, p_exam_type: ctx.exam, p_student_id: sid, p_marks: num });
         if (error) iv++; else { ok++; ctx.mMap[sid] = num; }
       }
       status.innerHTML = `<div class="bg-emerald-50 dark:bg-emerald-900/30 p-4 rounded-xl"><p class="font-bold text-emerald-700 dark:text-emerald-300 mb-2">✅ Import done</p><p class="text-sm dark:text-white">✓ Success: <span class="num-display">${ok}</span></p><p class="text-sm dark:text-white">✗ Not found: <span class="num-display">${nf}</span></p><p class="text-sm dark:text-white">❌ Invalid: <span class="num-display">${iv}</span></p></div>`;
