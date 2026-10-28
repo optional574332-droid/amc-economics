@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>AMC Economics — Attendance System</title>
 <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="theme-color" content="#4F46E5">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -3190,7 +3193,10 @@ async function loadAttendanceReport() {
 
   area.innerHTML = '<p class="text-center py-4 dark:text-gray-300">⏳...</p>';
   try {
-    const sessions = await fetchAll((a, b) => db.from('attendance_sessions').select('id, course_code').eq('year', year).eq('session_year', session_year).range(a, b));
+    // শুধু সেই সেশন গণনায় ধরা হয় যেখানে অন্তত একজনের হাজিরা রেকর্ড আছে (ফাঁকা PIN-সেশন বাদ)
+    const { data: heldData, error: heldErr } = await db.rpc('get_held_sessions', { p_year: year, p_session_year: session_year });
+    if (heldErr) throw heldErr;
+    const sessions = heldData || [];
     if (!sessions.length) { area.innerHTML = '<p class="text-center text-gray-400 py-4">No classes held for this session and class/year</p>'; return; }
 
     const records = await fetchByIds('attendance_records', 'student_id, session_id, status', 'session_id', sessions.map(s => s.id));
@@ -3597,7 +3603,10 @@ async function loadIndividualReport() {
     if (student.reg_no && String(student.reg_no).trim() !== '' && String(student.reg_no).toLowerCase() !== reg.toLowerCase()) {
       area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${reg ? 'Registration number does not match' : 'This student has a registration number. Enter it.'}</p>`; return;
     }
-    const sessions = await fetchAll((a, b) => db.from('attendance_sessions').select('id, course_code, date').eq('year', year).eq('session_year', session_year).order('date').range(a, b));
+    // শুধু যেসব সেশনে অন্তত একজনের হাজিরা আছে সেগুলোই "ক্লাস হয়েছে" ধরা হয়
+    const { data: heldData, error: heldErr } = await db.rpc('get_held_sessions', { p_year: year, p_session_year: session_year });
+    if (heldErr) throw heldErr;
+    const sessions = heldData || [];
     const recs = await fetchAll((a, b) => db.from('attendance_records').select('session_id, status').eq('student_id', student.id).range(a, b));
     const recMap = {}; recs.forEach(r => { recMap[r.session_id] = r.status; });
     const dMap = {}, held = {}, att = {};
@@ -4650,8 +4659,8 @@ async function loadStudentData() {
   const student = currentStudent;
 
   await getCourseInfoMap();
-  let msq = db.from('attendance_sessions').select('id, course_code, date').eq('year', student.year).eq('session_year', student.session_year);
-const { data: mySessions } = await msq.limit(2000);
+  // শুধু যেসব ক্লাসে অন্তত একজনের হাজিরা আছে সেগুলো মোট ক্লাস হিসেবে গণ্য
+  const { data: mySessions } = await db.rpc('get_held_sessions', { p_year: student.year, p_session_year: student.session_year });
   const total = mySessions?.length || 0;
   const { data: records } = await db.from('attendance_records').select('status, session_id, attendance_sessions(course_code, date)').eq('student_id', student.id);
   const idSet = new Set((mySessions || []).map(s => s.id));
