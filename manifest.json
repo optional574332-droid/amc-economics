@@ -1,17 +1,17 @@
 {
   "name": "AMC অর্থনীতি হাজিরা",
   "short_name": "AMC হাজিরা",
+  "id": "/index.html",
   "start_url": "/index.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#4F46E5",
   "theme_color": "#4F46E5",
   "orientation": "portrait",
   "icons": [
-    {
-      "src": "https://cdn-icons-png.flaticon.com/512/2991/2991109.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
