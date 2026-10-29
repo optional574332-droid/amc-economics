@@ -1891,6 +1891,11 @@ async function showAdminTab(tab) {
     el.innerHTML = `
       <div class="space-y-4 max-w-3xl">
         <h3 class="text-lg font-bold dark:text-white">🎓 Academic Setup</h3>
+        <div class="flex gap-2 flex-wrap">
+          <button id="acTabCourses" onclick="acSwitch('courses')" class="tab-pill active">📚 Courses</button>
+          <button id="acTabExams" onclick="acSwitch('exams')" class="tab-pill">📝 Exam Types</button>
+        </div>
+        <div id="acPaneCourses" class="space-y-4">
         <div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl max-w-lg">
           <h4 class="font-bold text-sm mb-3 dark:text-white">📚 Add New Course</h4>
           <select id="acCategory" onchange="acFillYears('acCategory','acYear')" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
@@ -1916,6 +1921,25 @@ async function showAdminTab(tab) {
             </select>
           </div>
           <div id="acCourseList"></div>
+        </div>
+        </div>
+
+        <div id="acPaneExams" class="hidden space-y-4">
+          <div class="bg-teal-50 dark:bg-teal-900/30 p-4 rounded-xl max-w-lg">
+            <h4 class="font-bold text-sm mb-1 dark:text-white">➕ Add Exam Type</h4>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">This list is used in Marks Entry and Reports. (Exam Schedule will use it too.)</p>
+            <input id="etName" maxlength="60" placeholder="Exam name (e.g., Model Test)" class="w-full border-2 rounded-xl p-3 mb-2 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+            <div class="flex gap-2 mb-2 items-center">
+              <input id="etMinutes" type="number" min="5" max="600" step="5" value="45" class="border-2 rounded-xl p-3 w-28 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+              <span class="text-sm text-gray-600 dark:text-gray-300">minutes (default duration)</span>
+            </div>
+            <label class="flex items-center gap-2 text-sm mb-3 dark:text-white"><input id="etTotal" type="checkbox" class="w-4 h-4"> Counts in course Total (in-course marks)</label>
+            <button onclick="addExamType()" class="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">Save</button>
+          </div>
+          <div class="bg-white dark:bg-gray-800 border-2 border-teal-100 dark:border-teal-800 rounded-xl p-4">
+            <h4 class="font-bold mb-3 dark:text-white">📝 Exam Types <span id="etCount" class="text-xs text-gray-400 num-display"></span></h4>
+            <div id="etList"></div>
+          </div>
         </div>
       </div>`;
     acFillYears('acCategory', 'acYear');
@@ -2207,6 +2231,194 @@ async function getCourseUsage(code) {
     out.sessions = count || 0;
   } catch (e) { console.warn(e); }
   return out;
+}
+
+// ============================================================
+// EXAM TYPES — Academic মেনুর অংশ। নম্বর-ইনপুট, রিপোর্ট ও (পরে) পরীক্ষা-রুটিন সবখানে একই তালিকা
+// ============================================================
+let examTypesCache = {};
+let acExamRows = [];
+
+function invalidateExamTypes() { examTypesCache = {}; }
+
+async function getExamTypes(includeInactive = false) {
+  const key = includeInactive ? 'all' : 'active';
+  if (examTypesCache[key]) return examTypesCache[key];
+  try {
+    let q = db.from('exam_types').select('id, name, default_minutes, counts_in_total, is_active, sort_order').order('sort_order').order('name');
+    if (!includeInactive) q = q.eq('is_active', true);
+    const { data, error } = await withTimeout(q, 10000);
+    if (error) throw error;
+    examTypesCache[key] = data || [];
+    return examTypesCache[key];
+  } catch (e) {
+    console.warn('Exam types load failed, using built-in list', e);
+    return STD_EXAMS.map((name, i) => ({ id: null, name, default_minutes: i >= 5 ? 180 : 45, counts_in_total: i < 5, is_active: true, sort_order: (i + 1) * 10 }));
+  }
+}
+
+function etFmtMinutes(m) {
+  m = Number(m) || 0;
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
+}
+
+function acSwitch(pane) {
+  const c = document.getElementById('acPaneCourses'), e = document.getElementById('acPaneExams');
+  if (!c || !e) return;
+  const showExams = pane === 'exams';
+  c.classList.toggle('hidden', showExams);
+  e.classList.toggle('hidden', !showExams);
+  const tc = document.getElementById('acTabCourses'), te = document.getElementById('acTabExams');
+  if (tc) tc.classList.toggle('active', !showExams);
+  if (te) te.classList.toggle('active', showExams);
+  if (showExams) loadExamTypeList();
+}
+
+async function loadExamTypeList() {
+  const box = document.getElementById('etList');
+  if (!box) return;
+  box.innerHTML = `<div class="flex flex-col items-center justify-center py-8 gap-3"><div class="w-9 h-9 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p class="text-gray-500 dark:text-gray-400 text-sm">Loading...</p></div>`;
+  try {
+    const res = await withTimeout(db.from('exam_types').select('*').order('sort_order').order('name'), 12000);
+    if (res.error) throw res.error;
+    const rows = res.data || [];
+    const counts = await Promise.all(rows.map(r =>
+      db.from('marks').select('id', { count: 'exact', head: true }).eq('exam_type', r.name).then(x => x.count || 0).catch(() => 0)));
+    acExamRows = rows.map((r, i) => ({ ...r, used: counts[i] }));
+    renderExamTypeList();
+  } catch (err) {
+    box.innerHTML = `<div class="text-center py-6"><p class="text-red-500 mb-2">❌ Failed to load</p><p class="text-xs text-gray-400 mb-3">${escapeHtml(err.message || '')}</p><button onclick="loadExamTypeList()" class="bg-teal-600 text-white px-4 py-2 rounded-lg btn-pop">Retry</button></div>`;
+  }
+}
+
+function renderExamTypeList() {
+  const box = document.getElementById('etList');
+  if (!box) return;
+  const cnt = document.getElementById('etCount');
+  if (cnt) cnt.textContent = `(${acExamRows.length})`;
+  if (!acExamRows.length) { box.innerHTML = '<p class="text-center text-gray-400 py-6 text-sm">No exam types yet. Add one above.</p>'; return; }
+  box.innerHTML = acExamRows.map((r, idx) => `
+    <div class="flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded-lg mb-1 ${r.is_active ? '' : 'opacity-60'}">
+      <div class="min-w-0 flex-1">
+        <p class="font-bold text-sm dark:text-white break-words">${escapeHtml(r.name)}</p>
+        <div class="flex flex-wrap gap-1 mt-1">
+          <span class="text-[11px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200 px-2 py-0.5 rounded-full">⏱ ${escapeHtml(etFmtMinutes(r.default_minutes))}</span>
+          ${r.counts_in_total ? '<span class="text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Counts in Total</span>' : ''}
+          ${r.is_active ? '' : '<span class="text-[11px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">Inactive</span>'}
+          <span class="text-[11px] ${r.used ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'} px-2 py-0.5 rounded-full">${r.used ? `Used in ${r.used} marks` : 'Not used yet'}</span>
+        </div>
+      </div>
+      <button onclick="editExamType(${idx})" class="bg-amber-100 text-amber-700 hover:bg-amber-500 hover:text-white px-2 py-1 rounded text-sm transition btn-pop" title="Edit">✏️</button>
+      <button onclick="toggleExamType(${idx})" class="bg-sky-100 text-sky-700 hover:bg-sky-600 hover:text-white px-2 py-1 rounded text-sm transition btn-pop" title="${r.is_active ? 'Deactivate' : 'Activate'}">${r.is_active ? '🚫' : '✅'}</button>
+      <button onclick="deleteExamType(${idx})" class="bg-red-100 text-red-600 hover:bg-red-600 hover:text-white px-2 py-1 rounded text-sm transition btn-pop" title="Delete">🗑️</button>
+    </div>`).join('');
+}
+
+function etFriendlyError(e) {
+  const m = (e && e.message) || 'Failed';
+  if (/duplicate|unique/i.test(m)) return 'This exam name already exists';
+  return m;
+}
+
+async function addExamType() {
+  const name = (document.getElementById('etName').value || '').trim().replace(/\s+/g, ' ');
+  const mins = parseInt(document.getElementById('etMinutes').value, 10);
+  const counts = document.getElementById('etTotal').checked;
+  if (!name) return toastWarning('Enter exam name');
+  if (name.length > 60) return toastWarning('Name is too long (max 60 characters)');
+  if (!mins || mins < 5 || mins > 600) return toastWarning('Duration must be 5 to 600 minutes');
+  if (acExamRows.some(r => r.name.toLowerCase() === name.toLowerCase())) return toastWarning('This exam name already exists');
+  showGlobalLoader();
+  try {
+    const maxSort = Math.max(0, ...acExamRows.map(r => r.sort_order || 0));
+    const { error } = await db.from('exam_types').insert({ name, default_minutes: mins, counts_in_total: counts, sort_order: maxSort + 10 });
+    if (error) throw error;
+    invalidateExamTypes();
+    document.getElementById('etName').value = '';
+    document.getElementById('etMinutes').value = 45;
+    document.getElementById('etTotal').checked = false;
+    toastSuccess('Exam type added');
+    await loadExamTypeList();
+  } catch (e) { toastError(etFriendlyError(e)); } finally { hideGlobalLoader(); }
+}
+
+async function editExamType(idx) {
+  const r = acExamRows[idx];
+  if (!r) return;
+  const st = 'width:100%;margin:2px 0 10px;padding:9px;border:2px solid #d1d5db;border-radius:10px;font-size:15px;color:#111;background:#fff;box-sizing:border-box';
+  const lb = 'display:block;font-size:12px;font-weight:700;color:#4b5563;text-align:left';
+  const res = await Swal.fire({
+    title: '✏️ Edit Exam Type',
+    html: `<div><label style="${lb}">Exam name</label><input id="swEtName" maxlength="60" style="${st}" value="${attrEsc(r.name)}">
+      <label style="${lb}">Default duration (minutes)</label><input id="swEtMin" type="number" min="5" max="600" step="5" style="${st}" value="${attrEsc(r.default_minutes)}">
+      <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:#111;text-align:left"><input id="swEtTotal" type="checkbox" ${r.counts_in_total ? 'checked' : ''}> Counts in course Total</label>
+      ${r.used ? `<p style="font-size:12px;color:#b45309;margin-top:10px;text-align:left">ℹ️ ${r.used} marks use this name. If you rename it, they move to the new name automatically.</p>` : ''}</div>`,
+    showCancelButton: true, confirmButtonText: 'Update', cancelButtonText: 'Cancel', confirmButtonColor: '#0d9488', focusConfirm: false,
+    preConfirm: () => {
+      const v = { name: document.getElementById('swEtName').value.trim().replace(/\s+/g, ' '), mins: parseInt(document.getElementById('swEtMin').value, 10), counts: document.getElementById('swEtTotal').checked };
+      if (!v.name) { Swal.showValidationMessage('Enter exam name'); return false; }
+      if (!v.mins || v.mins < 5 || v.mins > 600) { Swal.showValidationMessage('Duration must be 5 to 600 minutes'); return false; }
+      return v;
+    }
+  });
+  if (!res.isConfirmed) return;
+  const v = res.value;
+  if (acExamRows.some((o, i) => i !== idx && o.name.toLowerCase() === v.name.toLowerCase())) return toastWarning('This exam name already exists');
+  showGlobalLoader();
+  try {
+    let moved = 0;
+    if (v.name !== r.name) {
+      const { data, error } = await db.rpc('admin_rename_exam_type', { p_id: r.id, p_new_name: v.name });
+      if (error) throw error;
+      moved = (data && data.marks_updated) || 0;
+    }
+    const { error: uErr } = await db.from('exam_types').update({ default_minutes: v.mins, counts_in_total: v.counts }).eq('id', r.id);
+    if (uErr) throw uErr;
+    invalidateExamTypes();
+    toastSuccess(moved ? `Updated (${moved} marks moved to the new name)` : 'Exam type updated');
+    await loadExamTypeList();
+  } catch (e) { toastError(etFriendlyError(e)); } finally { hideGlobalLoader(); }
+}
+
+async function toggleExamType(idx) {
+  const r = acExamRows[idx];
+  if (!r) return;
+  showGlobalLoader();
+  try {
+    const { error } = await db.from('exam_types').update({ is_active: !r.is_active }).eq('id', r.id);
+    if (error) throw error;
+    invalidateExamTypes();
+    toastSuccess(r.is_active ? 'Deactivated — hidden from new dropdowns' : 'Activated');
+    await loadExamTypeList();
+  } catch (e) { toastError(etFriendlyError(e)); } finally { hideGlobalLoader(); }
+}
+
+async function deleteExamType(idx) {
+  const r = acExamRows[idx];
+  if (!r) return;
+  if (r.used > 0) {
+    const ok = await Swal.fire({
+      icon: 'info', title: 'Cannot delete', showCancelButton: r.is_active, confirmButtonText: r.is_active ? 'Deactivate instead' : 'OK', cancelButtonText: 'Cancel', confirmButtonColor: '#0d9488',
+      html: `<div style="text-align:left;font-size:14px"><b>${escapeHtml(r.name)}</b> is used in <b>${r.used}</b> marks records, so deleting it is blocked to protect them.${r.is_active ? '<br><br>You can <b>deactivate</b> it: it disappears from new dropdowns, but old marks stay safe.' : ''}</div>`
+    });
+    if (ok.isConfirmed && r.is_active) await toggleExamType(idx);
+    return;
+  }
+  const ok = await Swal.fire({
+    icon: 'warning', title: 'Delete exam type?', showCancelButton: true, confirmButtonText: 'Yes, delete', cancelButtonText: 'Cancel', confirmButtonColor: '#dc2626', cancelButtonColor: '#6b7280', reverseButtons: true,
+    html: `<div style="text-align:left;font-size:14px"><b>${escapeHtml(r.name)}</b> has no marks yet. Delete it?</div>`
+  });
+  if (!ok.isConfirmed) return;
+  showGlobalLoader();
+  try {
+    const { error } = await db.from('exam_types').delete().eq('id', r.id);
+    if (error) throw error;
+    invalidateExamTypes();
+    toastSuccess('Exam type deleted');
+    await loadExamTypeList();
+  } catch (e) { toastError(etFriendlyError(e)); } finally { hideGlobalLoader(); }
 }
 
 function acMatch(q, c) {
@@ -3478,7 +3690,7 @@ let currentExamwiseData = null;
 async function erxFillExams() {
   const sel = document.getElementById('erxExam'); if (!sel) return;
   const s = parseInt(document.getElementById('erxSessionYear').value, 10), y = document.getElementById('erxYear').value, keep = sel.value;
-  const list = [...STD_EXAMS];
+  const list = (await getExamTypes(true)).map(e => e.name);
   if (s && y) {
     try {
       const data = await fetchAll((a, b) => db.from('marks').select('exam_type').eq('session_year', s).eq('year', y).range(a, b));
@@ -3546,7 +3758,9 @@ async function loadExamReport() {
     const mMap = {};
     marks.forEach(m => { (mMap[m.student_id] = mMap[m.student_id] || {})[m.exam_type] = m.marks; });
     const students = (await cohortStudents(year, session_year, marks.map(m => m.student_id))).filter(s => s.status === 'active' || mMap[s.id]);
-    const baseTypes = ['1st In-course', '2nd In-course', 'Assignment', 'Quiz Test', 'Class Test'];
+    const etAll = await getExamTypes(true);
+  const flagged = etAll.filter(e => e.counts_in_total).map(e => e.name);
+  const baseTypes = flagged.length ? flagged : STD_EXAMS.slice(0, 5);
     const extra = [...new Set(marks.map(m => m.exam_type))].filter(t => !baseTypes.includes(t)).sort();
     const examTypes = baseTypes.concat(extra);
     currentExamData = { session_year, year, course, examTypes, baseTypes, students, markMap: mMap };
@@ -3688,7 +3902,7 @@ async function loadNoticesAdmin() {
 // ============================================================
 // BACKUP
 // ============================================================
-const BACKUP_TABLES = ['students', 'teachers', 'courses', 'courses_new', 'teacher_courses', 'attendance_sessions', 'attendance_records', 'marks', 'notices'];
+const BACKUP_TABLES = ['students', 'teachers', 'courses', 'courses_new', 'teacher_courses', 'attendance_sessions', 'attendance_records', 'exam_types', 'marks', 'notices'];
 
 // একটি টেবিলের সব সারি ১০০০টি করে পাতা ধরে আনে — মোট সারির কোনো সীমা নেই
 async function fetchTableFull(t) {
@@ -3802,7 +4016,7 @@ async function restoreFromBackup() {
 
     // ৩) মুছা (কোনো ধাপে ব্যর্থ হলে সাথে সাথে থামে)
     status.innerHTML = '<p class="text-gray-500">⏳ পুরোনো ডেটা সরানো হচ্ছে...</p>';
-    const delOrder = ['attendance_records', 'marks', 'attendance_sessions', 'teacher_courses', 'courses', 'courses_new', 'students', 'notices'];
+    const delOrder = ['attendance_records', 'marks', 'exam_types', 'attendance_sessions', 'teacher_courses', 'courses', 'courses_new', 'students', 'notices'];
     for (const t of delOrder) {
       if (backup.data[t] === undefined) continue;
       const delQ = db.from(t).delete();
@@ -3813,7 +4027,7 @@ async function restoreFromBackup() {
     }
 
     // ৪) বসানো — ৫০০টি করে। শিক্ষকদের তথ্য এখানে বদলানো হয় না (আলাদাভাবে পরিচালিত)
-    const insOrder = ['students', 'courses', 'courses_new', 'teacher_courses', 'notices', 'attendance_sessions', 'attendance_records', 'marks'];
+    const insOrder = ['students', 'courses', 'courses_new', 'teacher_courses', 'notices', 'exam_types', 'attendance_sessions', 'attendance_records', 'marks'];
     for (const t of insOrder) {
       const rows = backup.data[t];
       if (!rows || !rows.length) continue;
@@ -3939,18 +4153,12 @@ async function showTeacherTab(tab) {
         <h3 class="text-lg font-bold dark:text-white">📊 Marks Entry</h3>
         ${teacherPickerHtml('mk', 'mkCourse', 'mkSY')}
         <select id="mkExam" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-          <option>1st In-course</option><option>2nd In-course</option><option>Assignment</option><option>Quiz Test</option><option>Class Test</option><option>Departmental Exam</option><option>Annual Exam</option><option>Others</option>
+          ${(await getExamTypes()).map(e => `<option value="${attrEsc(e.name)}">${escapeHtml(e.name)}</option>`).join('')}
         </select>
-        <input id="mkCustomExam" placeholder="Custom exam name" class="hidden w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         <button onclick="loadMarkEntry()" class="bg-purple-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">📝 Load Marks Entry</button>
         <div id="markEntryArea"></div>
       </div>`;
     tpInit('mk', 'mkCourse', 'mkSY', dedupeCourses(myCourses));
-    document.getElementById('mkExam').addEventListener('change', (e) => {
-      const c = document.getElementById('mkCustomExam');
-      if (e.target.value === 'Others') c.classList.remove('hidden');
-      else c.classList.add('hidden');
-    });
   }
   else if (tab === 'attendanceReport') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
@@ -4426,11 +4634,9 @@ let currentMarkContext = null;
 
 async function loadMarkEntry() {
   const cv = document.getElementById('mkCourse').value;
-  const examVal = document.getElementById('mkExam').value;
-  const customExam = document.getElementById('mkCustomExam').value.trim();
-  const exam = examVal === 'Others' ? (customExam || 'Others') : examVal;
+  const exam = document.getElementById('mkExam').value;
   if (!cv) return toastWarning('Select course');
-  if (examVal === 'Others' && !customExam) return toastWarning('Enter exam name');
+  if (!exam) return toastWarning('Select exam');
   const [course, year] = cv.split('|');
   if (!year) return toastWarning('Course info incomplete');
 
