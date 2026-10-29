@@ -1,13 +1,13 @@
 // ============================================================
 // Service Worker — AMC অর্থনীতি হাজিরা সিস্টেম
-// Version: v9.0 (Department monogram icons + held-session attendance %)
-// Updated: 2026-10-28
+// Version: v10.0 (Exam Types list + safer backup/restore)
+// Updated: 2026-10-30
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v9';
-const STATIC_CACHE  = 'amc-static-v9';
-const DYNAMIC_CACHE = 'amc-dynamic-v9';
-const CDN_CACHE     = 'amc-cdn-v9';
+const CACHE_NAME    = 'amc-attendance-v10';
+const STATIC_CACHE  = 'amc-static-v10';
+const DYNAMIC_CACHE = 'amc-dynamic-v10';
+const CDN_CACHE     = 'amc-cdn-v10';
 
 const urlsToCache = [
   './',
@@ -40,7 +40,7 @@ function isCDNRequest(url) {
 // INSTALL
 // ============================================================
 self.addEventListener('install', event => {
-  console.log('🔧 Service Worker v9 installing...');
+  console.log('🔧 Service Worker v10 installing...');
   event.waitUntil(
     Promise.all([
       caches.open(CACHE_NAME).then(cache =>
@@ -55,7 +55,7 @@ self.addEventListener('install', event => {
       )
     ])
     .then(() => {
-      console.log('✅ Service Worker v9 installed');
+      console.log('✅ Service Worker v10 installed');
       return self.skipWaiting();
     })
     .catch(err => console.log('❌ Install failed:', err))
@@ -66,7 +66,7 @@ self.addEventListener('install', event => {
 // ACTIVATE — পুরোনো ক্যাশ মুছে ফেলা
 // ============================================================
 self.addEventListener('activate', event => {
-  console.log('🔧 Service Worker v9 activating...');
+  console.log('🔧 Service Worker v10 activating...');
   const validCaches = [CACHE_NAME, STATIC_CACHE, DYNAMIC_CACHE, CDN_CACHE];
   event.waitUntil(
     caches.keys()
@@ -79,7 +79,7 @@ self.addEventListener('activate', event => {
         })
       ))
       .then(() => {
-        console.log('✅ Service Worker v9 activated');
+        console.log('✅ Service Worker v10 activated');
         return self.clients.claim();
       })
       .catch(err => console.log('❌ Activate failed:', err))
@@ -160,4 +160,4 @@ self.addEventListener('message', event => {
   }
 });
 
-console.log('✅ Service Worker v9 loaded');
+console.log('✅ Service Worker v10 loaded');
