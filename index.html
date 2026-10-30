@@ -430,7 +430,9 @@
       <button onclick="showTeacherTab('markEntry'); setActiveBottomNav('markEntry')" class="tab-pill">Marks Entry</button>
       <button onclick="showTeacherTab('attendanceReport'); setActiveBottomNav('attendanceReport')" class="tab-pill">📊 Reports</button>
       <button onclick="showTeacherTab('myCourses'); setActiveBottomNav('myCourses')" class="tab-pill">📚 My Courses</button>
-      <button onclick="showTeacherTab('myRoutine'); setActiveBottomNav('myRoutine')" class="tab-pill">📅 My Routine</button>
+      <button onclick="showTeacherTab('examSchedule'); setActiveBottomNav('examSchedule')" class="tab-pill">📅 Exam Schedule</button>
+<button onclick="showTeacherTab('examDuty'); setActiveBottomNav('examDuty')" class="tab-pill">📝 My Duty</button>
+<button onclick="showTeacherTab('myRoutine'); setActiveBottomNav('myRoutine')" class="tab-pill">📅 My Routine</button>
       <button onclick="showTeacherTab('tracking'); setActiveBottomNav('tracking')" class="tab-pill">🔍 Tracking</button>
     </div>
     
@@ -4099,6 +4101,11 @@ async function showTeacherTab(tab) {
   if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
   const el = document.getElementById('teacherContent');
   closeMoreMenu();
+  if (tab === 'examSchedule' || tab === 'examDuty') {
+    if (typeof exsTeacherTab === 'function') exsTeacherTab(el, tab);
+    else el.innerHTML = '<div class="text-center py-8 text-red-500">Exam Schedule could not load. Please refresh the page.</div>';
+    return;
+  }
 
   if (tab === 'takeAttendance') {
     const { data: activeSess } = await mySess({ active: true });
@@ -4999,6 +5006,7 @@ const att = records?.filter(r => idSet.has(r.session_id) && (r.status === 'prese
       <p class="text-gray-600 dark:text-gray-400 font-bold">Attendance Rate</p>
       <p class="text-xs text-gray-500 dark:text-gray-500 mt-2"><span class="num-display">${att}</span> / <span class="num-display">${total}</span> classes</p>
     </div>
+    <div id="studentExamBox" class="mb-2"></div>
     <div class="flex justify-between items-center flex-wrap gap-2 mb-3">
       <h3 class="font-bold text-lg dark:text-white flex items-center gap-2"><span>📅</span> My Class Routine</h3>
       ${sortedRoutines.length ? `
@@ -5019,6 +5027,7 @@ const att = records?.filter(r => idSet.has(r.session_id) && (r.status === 'prese
     <h3 class="font-bold text-lg mb-3 dark:text-white flex items-center gap-2"><span>📢</span> Notice Board</h3>
     ${notices?.map(n => `<div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-4 rounded-r-xl mb-2 shadow-sm"><b class="dark:text-white text-base">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b><p class="text-sm text-gray-600 dark:text-gray-300 mt-1">${escapeHtml(n.content)}</p></div>`).join('') || '<p class="text-gray-400 text-sm">No notices</p>'}
   `;
+  if (typeof exsStudentLoad === 'function') exsStudentLoad(student);
 }
 
 // ============================================================
@@ -5295,7 +5304,7 @@ function exsRenderList() {
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
           <p class="font-bold dark:text-white break-words">${escapeHtml(s.exam_name)}</p>
-          <p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(yearLabel(s.year))} · Session ${escapeHtml(s.session_year)}</p>
+          <p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(yearLabel(s.year))} · Year ${escapeHtml(s.session_year)}</p>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${s.slots.length} course${s.slots.length === 1 ? '' : 's'} · ${escapeHtml(range)}</p>
         </div>
         <span class="text-xs font-bold px-2 py-1 rounded-full ${s.is_published ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${s.is_published ? 'Published' : 'Draft'}</span>
@@ -5361,13 +5370,13 @@ async function exsPdfFor(sch, withRooms) {
   await getCourseInfoMap();
   await savePdfA4({
     file: exsFileName(sch, 'pdf'), title: `Exam Schedule: ${sch.exam_name}`,
-    lines: [`Class: ${yearLabel(sch.year)}`, `Session: ${sch.session_year}`],
+    lines: [`Class: ${yearLabel(sch.year)}`, `Year: ${sch.session_year}`],
     head: [exsExportHead(withRooms)], body: exsExportRows(sch, withRooms), orientation: withRooms ? 'landscape' : 'portrait'
   });
 }
 async function exsExcelFor(sch, withRooms) {
   await getCourseInfoMap();
-  const aoa = [[`Exam Schedule: ${sch.exam_name}`], [`Class: ${yearLabel(sch.year)}`], [`Session: ${sch.session_year}`], [], exsExportHead(withRooms)].concat(exsExportRows(sch, withRooms));
+  const aoa = [[`Exam Schedule: ${sch.exam_name}`], [`Class: ${yearLabel(sch.year)}`], [`Year: ${sch.session_year}`], [], exsExportHead(withRooms)].concat(exsExportRows(sch, withRooms));
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = withRooms ? [{ wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 34 }, { wch: 20 }, { wch: 10 }, { wch: 40 }] : [{ wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 34 }, { wch: 20 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Exam Schedule');
@@ -5382,7 +5391,7 @@ async function exsView(id) {
   await getCourseInfoMap();
   Swal.fire({
     title: escapeHtml(s.exam_name), width: 'min(96vw, 900px)', showConfirmButton: true, confirmButtonText: 'Close', confirmButtonColor: '#4f46e5',
-    html: `<div style="text-align:left"><p style="font-size:13px;color:#6b7280;margin-bottom:8px">${escapeHtml(yearLabel(s.year))} · Session ${escapeHtml(s.session_year)} · <b>${s.is_published ? 'Published' : 'Draft'}</b></p>${exsTableHtml(s, true)}</div>`
+    html: `<div style="text-align:left"><p style="font-size:13px;color:#6b7280;margin-bottom:8px">${escapeHtml(yearLabel(s.year))} · Year ${escapeHtml(s.session_year)} · <b>${s.is_published ? 'Published' : 'Draft'}</b></p>${exsTableHtml(s, true)}</div>`
   });
 }
 async function exsTogglePublish(id) {
@@ -5390,7 +5399,7 @@ async function exsTogglePublish(id) {
   if (!s.is_published) {
     const missing = s.slots.filter(sl => !sl.rooms.length || sl.rooms.some(r => !r.invigilators.length)).length;
     const ok = await Swal.fire({ icon: 'question', title: 'Publish this schedule?', showCancelButton: true, confirmButtonText: 'Publish', confirmButtonColor: '#059669', cancelButtonText: 'Cancel',
-      html: `<div style="text-align:left;font-size:14px">Students of <b>${escapeHtml(yearLabel(s.year))}</b> (session ${escapeHtml(s.session_year)}) will see the dates, courses and times. Rooms and invigilators are shown only to teachers.${missing ? `<br><br>⚠️ ${missing} entr${missing === 1 ? 'y has' : 'ies have'} no room or invigilator yet.` : ''}</div>` });
+      html: `<div style="text-align:left;font-size:14px">Students of <b>${escapeHtml(yearLabel(s.year))}</b> (year ${escapeHtml(s.session_year)}) will see the dates, courses and times. Rooms and invigilators are shown only to teachers.${missing ? `<br><br>⚠️ ${missing} entr${missing === 1 ? 'y has' : 'ies have'} no room or invigilator yet.` : ''}</div>` });
     if (!ok.isConfirmed) return;
   }
   showGlobalLoader();
@@ -5577,7 +5586,7 @@ function exsRenderForm() {
   const ets = EXS.examTypes.filter(e => e.is_active || e.id === f.exam_type_id);
   const examSel = `<select id="exsExam" onchange="exsSetExam(this.value)" class="${EXS_IN} mb-2">${ets.map(e => `<option value="${attrEsc(e.id)}"${e.id === f.exam_type_id ? ' selected' : ''}>${escapeHtml(e.name)}</option>`).join('')}</select>`;
   const head = edit
-    ? `<div class="bg-indigo-50 dark:bg-gray-700 rounded-xl p-3 mb-3 text-sm dark:text-white"><b>${escapeHtml(yearLabel(f.year))}</b> · Session <b>${escapeHtml(f.session_year)}</b><p class="text-xs text-gray-500 dark:text-gray-300 mt-1">Class and session cannot be changed. To change them, create a new schedule.</p></div>
+    ? `<div class="bg-indigo-50 dark:bg-gray-700 rounded-xl p-3 mb-3 text-sm dark:text-white"><b>${escapeHtml(yearLabel(f.year))}</b> · Year <b>${escapeHtml(f.session_year)}</b><p class="text-xs text-gray-500 dark:text-gray-300 mt-1">Class and session cannot be changed. To change them, create a new schedule.</p></div>
        <label class="text-xs font-bold text-gray-500">Exam name</label>${examSel}`
     : `<label class="text-xs font-bold text-gray-500">Class</label>${classPickerHtml('exsCls', { onchange: 'exsClassChanged()' })}
        <label class="text-xs font-bold text-gray-500">Session / Year</label><select id="exsSession" onchange="exsSetSession(this.value)" class="${EXS_IN} mb-2"></select>
@@ -5665,6 +5674,145 @@ async function exsSave(publish) {
     await exsLoadList(); exsRenderList();
   } catch (e) { toastError(exsFriendly(e)); } finally { hideGlobalLoader(); }
 }
+
+/* ============================================================
+   TEACHER PANEL: "Exam Schedule" (all published, exam-wise) and "My Duty" (own invigilation)
+   STUDENT DASHBOARD: published schedule of own class, without rooms / invigilators
+   ============================================================ */
+EXS.t = { schedules: [], duties: [], filter: '' };
+EXS.s = { list: [] };
+
+function exsToday() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function exsRange(sch) {
+  const ds = sch.slots.map(x => x.date).sort();
+  if (!ds.length) return '';
+  return ds[0] === ds[ds.length - 1] ? exsFmtDate(ds[0]) : `${exsFmtDate(ds[0])} → ${exsFmtDate(ds[ds.length - 1])}`;
+}
+function exsStatus(sch) {
+  const ds = sch.slots.map(x => x.date).sort(); const today = exsToday();
+  if (!ds.length) return null;
+  if (ds[ds.length - 1] < today) return { text: 'Completed', cls: 'bg-gray-100 text-gray-600' };
+  if (ds[0] <= today) return { text: 'Ongoing', cls: 'bg-emerald-100 text-emerald-700' };
+  return { text: 'Upcoming', cls: 'bg-indigo-100 text-indigo-700' };
+}
+function exsLoadingHtml() { return '<div class="flex flex-col items-center justify-center py-10 gap-3"><div class="w-9 h-9 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p class="text-gray-500 dark:text-gray-400 text-sm">Loading...</p></div>'; }
+function exsSchedCard(sch, idx, withRooms, pdfFn, excelFn) {
+  const st = exsStatus(sch);
+  return `<div class="bg-white dark:bg-gray-800 border-2 border-indigo-100 dark:border-indigo-900 rounded-xl p-3 mb-3">
+    <div class="flex flex-wrap items-start justify-between gap-2 mb-2">
+      <div class="min-w-0"><p class="font-bold dark:text-white break-words">${escapeHtml(sch.exam_name)}</p>
+        <p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(yearLabel(sch.year))} · Year ${escapeHtml(sch.session_year)}</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(exsRange(sch))}</p></div>
+      ${st ? `<span class="text-xs font-bold px-2 py-1 rounded-full ${st.cls}">${st.text}</span>` : ''}
+    </div>
+    ${exsTableHtml(sch, withRooms)}
+    <div class="flex gap-2 mt-3">
+      <button onclick="${pdfFn}(${idx})" class="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold btn-pop">📄 PDF</button>
+      <button onclick="${excelFn}(${idx})" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold btn-pop">📊 Excel</button>
+    </div></div>`;
+}
+function exsErrorHtml(msg, retry) {
+  return `<div class="text-center py-8"><p class="text-red-500 mb-2">❌ Failed to load</p><p class="text-xs text-gray-400 mb-3">${escapeHtml(msg || '')}</p>${retry ? `<button onclick="${retry}" class="bg-indigo-600 text-white px-4 py-2 rounded-lg btn-pop">Retry</button>` : ''}</div>`;
+}
+
+// ---------- teacher ----------
+async function exsTeacherTab(el, tab) {
+  el.innerHTML = exsLoadingHtml();
+  try {
+    if (!currentTeacher || !currentTeacher.token) throw new Error('Please login again');
+    await getCourseInfoMap();
+    if (tab === 'examSchedule') {
+      const { data, error } = await db.rpc('t_exam_schedules', { p_token: currentTeacher.token });
+      if (error) throw error;
+      if (!data || data.ok === false) throw new Error((data && data.message) || 'Failed to load');
+      EXS.t.schedules = data.data || [];
+      exsTeacherRenderSchedules(el);
+    } else {
+      const { data, error } = await db.rpc('t_my_exam_duties', { p_token: currentTeacher.token });
+      if (error) throw error;
+      if (!data || data.ok === false) throw new Error((data && data.message) || 'Failed to load');
+      EXS.t.duties = data.data || [];
+      exsTeacherRenderDuties(el);
+    }
+  } catch (e) { el.innerHTML = exsErrorHtml(e.message, `showTeacherTab('${tab}')`); }
+}
+function exsTeacherRenderSchedules(el) {
+  el = el || document.getElementById('teacherContent'); if (!el) return;
+  const all = EXS.t.schedules, names = [...new Set(all.map(s => s.exam_name))];
+  const flt = names.includes(EXS.t.filter) ? EXS.t.filter : '';
+  const rows = all.map((s, i) => ({ s, i })).filter(x => !flt || x.s.exam_name === flt);
+  el.innerHTML = `<div class="space-y-3">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-lg font-bold dark:text-white">📅 Exam Schedule</h3>
+      ${names.length > 1 ? `<select onchange="exsTSetFilter(this.value)" class="border-2 rounded-xl p-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="">All exams</option>${names.map(n => `<option value="${attrEsc(n)}"${n === flt ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}</select>` : ''}
+    </div>
+    ${rows.length ? rows.map(x => exsSchedCard(x.s, x.i, true, 'exsTPdf', 'exsTExcel')).join('') : '<div class="text-center text-gray-400 py-10 border-2 border-dashed rounded-xl">No exam schedule has been published yet.</div>'}
+  </div>`;
+}
+function exsTSetFilter(v) { EXS.t.filter = v; exsTeacherRenderSchedules(); }
+async function exsTPdf(i) { const s = EXS.t.schedules[i]; if (!s) return; showGlobalLoader(); try { await exsPdfFor(s, true); } catch (e) { toastError('PDF failed: ' + (e.message || e)); } finally { hideGlobalLoader(); } }
+async function exsTExcel(i) { const s = EXS.t.schedules[i]; if (!s) return; showGlobalLoader(); try { await exsExcelFor(s, true); } catch (e) { toastError('Excel failed: ' + (e.message || e)); } finally { hideGlobalLoader(); } }
+
+function exsDutyHead() { return ['Date', 'Day', 'Course Code', 'Course Name', 'Time', 'Room', 'Exam', 'Class', 'Co-invigilator(s)']; }
+function exsDutyRows(list) {
+  return list.map(d => [exsFmtDate(d.date), d.day || exsDayName(d.date), d.course_code, courseInfo(d.course_code).name || '', `${exsFmt12(d.start)} - ${exsFmt12(d.end)}`, d.room_no, d.exam_name, `${yearLabel(d.year)} (${d.session_year})`, (d.co_invigilators || []).join(', ') || '-']);
+}
+function exsTeacherRenderDuties(el) {
+  el = el || document.getElementById('teacherContent'); if (!el) return;
+  const today = exsToday(), all = EXS.t.duties;
+  const upcoming = all.filter(d => d.date >= today), past = all.filter(d => d.date < today).reverse();
+  const card = d => `<div class="bg-white dark:bg-gray-800 border-2 ${d.date === today ? 'border-emerald-400' : 'border-indigo-100 dark:border-indigo-900'} rounded-xl p-3 mb-2 ${d.date < today ? 'opacity-60' : ''}">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="font-bold dark:text-white">${escapeHtml(exsFmtDate(d.date))} <span class="font-normal text-sm text-gray-500">${escapeHtml(d.day || exsDayName(d.date))}</span></p>
+        ${d.date === today ? '<span class="text-xs font-bold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Today</span>' : ''}
+      </div>
+      <p class="text-sm dark:text-white mt-1">🕒 ${escapeHtml(exsFmt12(d.start))} - ${escapeHtml(exsFmt12(d.end))} · 🚪 Room <b>${escapeHtml(d.room_no)}</b></p>
+      <p class="text-sm dark:text-white"><b>${escapeHtml(d.course_code)}</b> ${escapeHtml(courseInfo(d.course_code).name || '')}</p>
+      <p class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(d.exam_name)} · ${escapeHtml(yearLabel(d.year))} · Year ${escapeHtml(d.session_year)}</p>
+      ${(d.co_invigilators || []).length ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">With: ${d.co_invigilators.map(escapeHtml).join(', ')}</p>` : ''}
+    </div>`;
+  el.innerHTML = `<div class="space-y-3 max-w-2xl">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-lg font-bold dark:text-white">📝 My Duty <span class="text-xs text-gray-400 num-display">(${all.length})</span></h3>
+      ${all.length ? `<div class="flex gap-2"><button onclick="exsDutyPdf()" class="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold btn-pop">📄 PDF</button><button onclick="exsDutyExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold btn-pop">📊 Excel</button></div>` : ''}
+    </div>
+    ${all.length ? '' : '<div class="text-center text-gray-400 py-10 border-2 border-dashed rounded-xl">You have no invigilation duty in any published exam schedule.</div>'}
+    ${upcoming.length ? `<p class="text-xs font-bold text-gray-500 uppercase">Upcoming</p>${upcoming.map(card).join('')}` : ''}
+    ${past.length ? `<p class="text-xs font-bold text-gray-500 uppercase mt-2">Past</p>${past.map(card).join('')}` : ''}
+  </div>`;
+}
+async function exsDutyPdf() {
+  showGlobalLoader();
+  try { await getCourseInfoMap(); await savePdfA4({ file: 'My_Exam_Duty.pdf', title: 'My Exam Duty', lines: [`Teacher: ${currentTeacher.name || ''}`], head: [exsDutyHead()], body: exsDutyRows(EXS.t.duties), orientation: 'landscape' }); }
+  catch (e) { toastError('PDF failed: ' + (e.message || e)); } finally { hideGlobalLoader(); }
+}
+async function exsDutyExcel() {
+  showGlobalLoader();
+  try {
+    await getCourseInfoMap();
+    const aoa = [['My Exam Duty'], [`Teacher: ${currentTeacher.name || ''}`], [], exsDutyHead()].concat(exsDutyRows(EXS.t.duties));
+    const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 30 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 22 }, { wch: 36 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'My Duty'); XLSX.writeFile(wb, 'My_Exam_Duty.xlsx');
+  } catch (e) { toastError('Excel failed: ' + (e.message || e)); } finally { hideGlobalLoader(); }
+}
+
+// ---------- student ----------
+async function exsStudentLoad(student) {
+  const box = document.getElementById('studentExamBox'); if (!box || !student) return;
+  try {
+    const { data, error } = await db.rpc('get_student_exam_schedule', { p_year: student.year, p_session_year: Number(student.session_year) });
+    if (error) throw error;
+    EXS.s.list = (data || []).map(s => ({ ...s, year: student.year, session_year: student.session_year }));
+    const today = exsToday();
+    const order = x => { const ds = x.slots.map(y => y.date).sort(); return (ds[ds.length - 1] || '') < today ? 1 : 0; };
+    EXS.s.list.sort((a, b) => order(a) - order(b));
+    box.innerHTML = `<h3 class="font-bold text-lg mb-3 dark:text-white flex items-center gap-2"><span>📅</span> Exam Schedule</h3>
+      ${EXS.s.list.length ? EXS.s.list.map((s, i) => exsSchedCard(s, i, false, 'exsSPdf', 'exsSExcel')).join('') : '<p class="text-gray-400 text-sm bg-gray-50 dark:bg-gray-800 p-4 rounded-xl text-center">No exam schedule has been published yet</p>'}
+      <div class="mb-6"></div>`;
+  } catch (e) { console.warn('Exam schedule load failed', e); box.innerHTML = ''; }
+}
+async function exsSPdf(i) { const s = EXS.s.list[i]; if (!s) return; showGlobalLoader(); try { await exsPdfFor(s, false); } catch (e) { toastError('PDF failed: ' + (e.message || e)); } finally { hideGlobalLoader(); } }
+async function exsSExcel(i) { const s = EXS.s.list[i]; if (!s) return; showGlobalLoader(); try { await exsExcelFor(s, false); } catch (e) { toastError('Excel failed: ' + (e.message || e)); } finally { hideGlobalLoader(); } }
 </script>
 </body>
 </html>
