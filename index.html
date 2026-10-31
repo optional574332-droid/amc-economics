@@ -4839,7 +4839,7 @@ async function searchByDeviceId() {
   if (!deviceId) return toastWarning('Enter Device ID');
   showGlobalLoader();
   try {
-    const { data: records, error } = await db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date, pin)`).ilike('device_id', `${deviceId}%`).order('marked_at', { ascending: false }).limit(500);
+    const { data: records, error } = await db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).ilike('device_id', `${deviceId}%`).order('marked_at', { ascending: false }).limit(500);
     if (error) return toastError(error.message);
     if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No attendance found for this device</p></div>`; return; }
     const uniqueStudents = new Set(records.map(r => r.students?.class_roll)).size;
@@ -4870,7 +4870,7 @@ async function searchByStudentRoll() {
 }
 
 async function loadStudentTracking(studentId, studentName) {
-  const { data: records, error: rErr } = await db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date, pin)`).eq('student_id', studentId).order('marked_at', { ascending: false }).limit(500);
+  const { data: records, error: rErr } = await db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).eq('student_id', studentId).order('marked_at', { ascending: false }).limit(500);
   if (rErr) return toastError(rErr.message);
   if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center"><p class="text-sm text-blue-700 dark:text-blue-300">ℹ️ No attendance found for ${escapeHtml(studentName)}</p></div>`; return; }
   const uniqueDevices = new Set(records.map(r => r.device_id)).size;
@@ -4895,7 +4895,7 @@ function renderTrackingResult({ type, title, records, summary, flags }) {
     flagsHtml = `<div class="bg-red-50 dark:bg-red-900/30 border-2 border-red-300 dark:border-red-700 p-3 rounded-xl mb-3"><p class="font-bold text-red-700 dark:text-red-300 mb-2">🚩 Suspicious activity</p>${flags.map(f => `<div class="bg-white dark:bg-gray-700 p-2 rounded-lg mb-1"><span class="suspicious-flag">${f.type === 'many_students' ? '👥' : '⚡'}</span><span class="text-sm dark:text-white ml-2">${escapeHtml(f.message)}</span></div>`).join('')}</div>`;
   }
 
-  const tableHtml = `<div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600"><thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="p-2 border dark:border-gray-600 dark:text-white">Date</th><th class="p-2 border dark:border-gray-600 dark:text-white">Time</th><th class="p-2 border dark:border-gray-600 dark:text-white">Student</th><th class="p-2 border dark:border-gray-600 dark:text-white">Course</th><th class="p-2 border dark:border-gray-600 dark:text-white">PIN</th><th class="p-2 border dark:border-gray-600 dark:text-white">Device</th><th class="p-2 border dark:border-gray-600 dark:text-white">Status</th></tr></thead><tbody>${records.map(r => { const stIcons = { present: '✅', absent: '❌', late: '⏰', excused: '📝' }; const dt = r.marked_at ? new Date(r.marked_at) : null; return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-display">${dt ? dt.toLocaleDateString('en-GB') : '-'}</td><td class="p-2 border dark:border-gray-600 text-center num-display">${dt ? dt.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : '-'}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.students?.name || '-')} <span class="text-xs text-gray-500 num-display">(${escapeHtml(r.students?.class_roll || '-')})</span></td><td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.course_code ? courseLabel(r.attendance_sessions.course_code) : '-')}</td><td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.pin || '-')}</td><td class="p-2 border dark:border-gray-600 text-center"><span class="device-badge">${shortDevice(r.device_id)}</span></td><td class="p-2 border dark:border-gray-600 text-center">${stIcons[r.status] || r.status}</td></tr>`; }).join('')}</tbody></table></div>`;
+  const tableHtml = `<div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600"><thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="p-2 border dark:border-gray-600 dark:text-white">Date</th><th class="p-2 border dark:border-gray-600 dark:text-white">Time</th><th class="p-2 border dark:border-gray-600 dark:text-white">Student</th><th class="p-2 border dark:border-gray-600 dark:text-white">Course</th><th class="p-2 border dark:border-gray-600 dark:text-white">Device</th><th class="p-2 border dark:border-gray-600 dark:text-white">Status</th></tr></thead><tbody>${records.map(r => { const stIcons = { present: '✅', absent: '❌', late: '⏰', excused: '📝' }; const dt = r.marked_at ? new Date(r.marked_at) : null; return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-display">${dt ? dt.toLocaleDateString('en-GB') : '-'}</td><td class="p-2 border dark:border-gray-600 text-center num-display">${dt ? dt.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : '-'}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.students?.name || '-')} <span class="text-xs text-gray-500 num-display">(${escapeHtml(r.students?.class_roll || '-')})</span></td><td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.course_code ? courseLabel(r.attendance_sessions.course_code) : '-')}</td><td class="p-2 border dark:border-gray-600 text-center"><span class="device-badge">${shortDevice(r.device_id)}</span></td><td class="p-2 border dark:border-gray-600 text-center">${stIcons[r.status] || r.status}</td></tr>`; }).join('')}</tbody></table></div>`;
 
   area.innerHTML = `<div class="bg-white dark:bg-gray-700 border-2 border-orange-200 dark:border-orange-700 rounded-xl p-4 space-y-3"><h4 class="font-bold text-orange-700 dark:text-orange-300">🔍 ${escapeHtml(title)}</h4>${summaryHtml}${flagsHtml}<p class="text-xs text-gray-500 dark:text-gray-400">${records.length} records</p>${tableHtml}<div class="flex gap-2 mt-3"><button onclick="exportTrackingExcel()" class="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-bold btn-pop text-sm">📊 Excel</button><button onclick="exportTrackingPDF()" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold btn-pop text-sm">📄 PDF</button></div></div>`;
   window.currentTrackingData = { type, title, records, summary, flags };
@@ -4904,10 +4904,10 @@ function renderTrackingResult({ type, title, records, summary, flags }) {
 async function exportTrackingExcel() {
   const data = window.currentTrackingData;
   if (!data) return toastWarning('Search first');
-  const rows = [['Date', 'Time', 'Student', 'Roll', 'Course', 'PIN', 'Device', 'Status']];
+  const rows = [['Date', 'Time', 'Student', 'Roll', 'Course', 'Device', 'Status']];
   data.records.forEach(r => {
     const dt = r.marked_at ? new Date(r.marked_at) : null;
-    rows.push([dt ? dt.toLocaleDateString('en-GB') : '', dt ? dt.toLocaleTimeString('en-GB') : '', r.students?.name || '', r.students?.class_roll || '', r.attendance_sessions?.course_code || '', r.attendance_sessions?.pin || '', r.device_id || '', r.status]);
+    rows.push([dt ? dt.toLocaleDateString('en-GB') : '', dt ? dt.toLocaleTimeString('en-GB') : '', r.students?.name || '', r.students?.class_roll || '', r.attendance_sessions?.course_code || '', r.device_id || '', r.status]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Tracking');
@@ -4919,8 +4919,8 @@ async function exportTrackingPDF() {
   if (!data) return toastWarning('Search first');
   await savePdfA4({ file: `Tracking_${Date.now()}.pdf`, title: 'Device Tracking Report', headFill: [245, 158, 11], repeatCols: [0, 1],
     lines: [data.title],
-    head: [['Date', 'Time', 'Student', 'Roll', 'Course', 'PIN', 'Device', 'Status']],
-    body: data.records.map(r => { const dt = r.marked_at ? new Date(r.marked_at) : null; return [dt ? dt.toLocaleDateString('en-GB') : '-', dt ? dt.toLocaleTimeString('en-GB') : '-', r.students?.name || '-', r.students?.class_roll || '-', r.attendance_sessions?.course_code || '-', r.attendance_sessions?.pin || '-', shortDevice(r.device_id), r.status]; }) });
+    head: [['Date', 'Time', 'Student', 'Roll', 'Course', 'Device', 'Status']],
+    body: data.records.map(r => { const dt = r.marked_at ? new Date(r.marked_at) : null; return [dt ? dt.toLocaleDateString('en-GB') : '-', dt ? dt.toLocaleTimeString('en-GB') : '-', r.students?.name || '-', r.students?.class_roll || '-', r.attendance_sessions?.course_code || '-', shortDevice(r.device_id), r.status]; }) });
 }
 
 // ============================================================
