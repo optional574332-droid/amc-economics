@@ -1,18 +1,35 @@
 // ============================================================
 // Service Worker — AMC অর্থনীতি হাজিরা সিস্টেম
-// Version: v10.0 (Exam Types list + safer backup/restore)
-// Updated: 2026-10-30
+// Version: v11.0 (ফাইল ভাগ করা: css/ + js/)
+// Updated: 2026-11-04
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v10';
-const STATIC_CACHE  = 'amc-static-v10';
-const DYNAMIC_CACHE = 'amc-dynamic-v10';
-const CDN_CACHE     = 'amc-cdn-v10';
+const CACHE_NAME    = 'amc-attendance-v11';
+const STATIC_CACHE  = 'amc-static-v11';
+const DYNAMIC_CACHE = 'amc-dynamic-v11';
+const CDN_CACHE     = 'amc-cdn-v11';
 
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
+  './css/style.css',
+  './js/config.js',
+  './js/utils.js',
+  './js/routine.js',
+  './js/directory.js',
+  './js/attendance.js',
+  './js/auth.js',
+  './js/admin.js',
+  './js/academic.js',
+  './js/people.js',
+  './js/reports.js',
+  './js/backup.js',
+  './js/teacher.js',
+  './js/student.js',
+  './js/teacher-routine.js',
+  './js/exam.js',
+  './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
@@ -40,7 +57,7 @@ function isCDNRequest(url) {
 // INSTALL
 // ============================================================
 self.addEventListener('install', event => {
-  console.log('🔧 Service Worker v10 installing...');
+  console.log('🔧 Service Worker v11 installing...');
   event.waitUntil(
     Promise.all([
       caches.open(CACHE_NAME).then(cache =>
@@ -55,7 +72,7 @@ self.addEventListener('install', event => {
       )
     ])
     .then(() => {
-      console.log('✅ Service Worker v10 installed');
+      console.log('✅ Service Worker v11 installed');
       return self.skipWaiting();
     })
     .catch(err => console.log('❌ Install failed:', err))
@@ -66,7 +83,7 @@ self.addEventListener('install', event => {
 // ACTIVATE — পুরোনো ক্যাশ মুছে ফেলা
 // ============================================================
 self.addEventListener('activate', event => {
-  console.log('🔧 Service Worker v10 activating...');
+  console.log('🔧 Service Worker v11 activating...');
   const validCaches = [CACHE_NAME, STATIC_CACHE, DYNAMIC_CACHE, CDN_CACHE];
   event.waitUntil(
     caches.keys()
@@ -79,7 +96,7 @@ self.addEventListener('activate', event => {
         })
       ))
       .then(() => {
-        console.log('✅ Service Worker v10 activated');
+        console.log('✅ Service Worker v11 activated');
         return self.clients.claim();
       })
       .catch(err => console.log('❌ Activate failed:', err))
@@ -160,4 +177,4 @@ self.addEventListener('message', event => {
   }
 });
 
-console.log('✅ Service Worker v10 loaded');
+console.log('✅ Service Worker v11 loaded');
