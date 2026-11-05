@@ -1,13 +1,13 @@
 // ============================================================
 // Service Worker — AMC অর্থনীতি হাজিরা সিস্টেম
-// Version: v11.0 (ফাইল ভাগ করা: css/ + js/)
-// Updated: 2026-11-04
+// Version: v12.0 (ফাইল ভাগ করা: css/ + js/)
+// Updated: 2026-11-05
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v11';
-const STATIC_CACHE  = 'amc-static-v11';
-const DYNAMIC_CACHE = 'amc-dynamic-v11';
-const CDN_CACHE     = 'amc-cdn-v11';
+const CACHE_NAME    = 'amc-attendance-v12';
+const STATIC_CACHE  = 'amc-static-v12';
+const DYNAMIC_CACHE = 'amc-dynamic-v12';
+const CDN_CACHE     = 'amc-cdn-v12';
 
 const urlsToCache = [
   './',
@@ -28,6 +28,7 @@ const urlsToCache = [
   './js/teacher.js',
   './js/student.js',
   './js/teacher-routine.js',
+  './js/geo.js',
   './js/exam.js',
   './js/app.js',
   './icons/icon-192.png',
@@ -57,7 +58,7 @@ function isCDNRequest(url) {
 // INSTALL
 // ============================================================
 self.addEventListener('install', event => {
-  console.log('🔧 Service Worker v11 installing...');
+  console.log('🔧 Service Worker v12 installing...');
   event.waitUntil(
     Promise.all([
       caches.open(CACHE_NAME).then(cache =>
@@ -72,7 +73,7 @@ self.addEventListener('install', event => {
       )
     ])
     .then(() => {
-      console.log('✅ Service Worker v11 installed');
+      console.log('✅ Service Worker v12 installed');
       return self.skipWaiting();
     })
     .catch(err => console.log('❌ Install failed:', err))
@@ -83,7 +84,7 @@ self.addEventListener('install', event => {
 // ACTIVATE — পুরোনো ক্যাশ মুছে ফেলা
 // ============================================================
 self.addEventListener('activate', event => {
-  console.log('🔧 Service Worker v11 activating...');
+  console.log('🔧 Service Worker v12 activating...');
   const validCaches = [CACHE_NAME, STATIC_CACHE, DYNAMIC_CACHE, CDN_CACHE];
   event.waitUntil(
     caches.keys()
@@ -96,7 +97,7 @@ self.addEventListener('activate', event => {
         })
       ))
       .then(() => {
-        console.log('✅ Service Worker v11 activated');
+        console.log('✅ Service Worker v12 activated');
         return self.clients.claim();
       })
       .catch(err => console.log('❌ Activate failed:', err))
@@ -177,4 +178,4 @@ self.addEventListener('message', event => {
   }
 });
 
-console.log('✅ Service Worker v11 loaded');
+console.log('✅ Service Worker v12 loaded');
