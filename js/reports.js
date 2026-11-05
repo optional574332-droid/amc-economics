@@ -9,15 +9,36 @@ function showReportTab(tab) {
   const box = 'bg-gray-50 dark:bg-gray-700 p-4 rounded-xl';
   const btn = (fn, label, c) => `<button onclick="${fn}" class="bg-${c}-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">${label}</button>`;
   if (tab === 'attendance') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="arSessionYear" type="number" placeholder="Session year e.g. 2026" class="${inp}">${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arAll" checked onchange="arToggleDates()"> All dates</label><input type="date" id="arFrom" disabled class="${inp}"><input type="date" id="arTo" disabled class="${inp}"></div><label class="flex items-center gap-2 text-xs font-semibold mb-3 dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="arSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arAll" checked onchange="arToggleDates()"> All dates</label><input type="date" id="arFrom" disabled class="${inp}"><input type="date" id="arTo" disabled class="${inp}"></div><label class="flex items-center gap-2 text-xs font-semibold mb-3 dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
+    rsBind('arSessionYear', 'arYear');
   } else if (tab === 'exam') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="erSessionYear" type="number" placeholder="Session year e.g. 2026" class="${inp}">${yr('erYear')}<input id="erCourse" placeholder="Course code" class="${inp}"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamExcel()', '📊 Excel', 'emerald')}${btn('exportExamPDF()', '📄 PDF', 'red')}</div></div><div id="examReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="erSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('erYear')}<input id="erCourse" placeholder="Course code" class="${inp}"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamExcel()', '📊 Excel', 'emerald')}${btn('exportExamPDF()', '📄 PDF', 'red')}</div></div><div id="examReportArea"></div></div>`;
+    rsBind('erSessionYear', 'erYear');
   } else if (tab === 'individual') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="irSessionYear" type="number" placeholder="Session year e.g. 2026" class="${inp}">${yr('irYear')}<input id="irRoll" placeholder="Class roll" class="${inp}"><input id="irReg" placeholder="Reg no" class="${inp}"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportIndividualExcel()', '📊 Excel', 'emerald')}${btn('exportIndividualPDF()', '📄 PDF', 'red')}</div></div><div id="individualReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="irSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('irYear')}<input id="irRoll" placeholder="Class roll" class="${inp}"><input id="irReg" placeholder="Reg no" class="${inp}"><button onclick="loadIndividualReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportIndividualExcel()', '📊 Excel', 'emerald')}${btn('exportIndividualPDF()', '📄 PDF', 'red')}</div></div><div id="individualReportArea"></div></div>`;
+    rsBind('irSessionYear', 'irYear');
   } else if (tab === 'examwise') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><input id="erxSessionYear" type="number" placeholder="Session year e.g. 2026" onchange="erxFillExams()" class="${inp}">${yr('erxYear', 'erxFillExams()')}<select id="erxExam" class="${inp}"><option value="">Exam</option></select><button onclick="loadExamwiseReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamwiseExcel()', '📊 Excel', 'emerald')}${btn('exportExamwisePDF()', '📄 PDF', 'red')}</div></div><div id="examwiseReportArea"></div></div>`;
-    erxFillExams();
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="erxSessionYear" class="${inp}" onchange="erxFillExams()"><option value="">Session year</option></select>${yr('erxYear')}<select id="erxExam" class="${inp}"><option value="">Exam</option></select><button onclick="loadExamwiseReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamwiseExcel()', '📊 Excel', 'emerald')}${btn('exportExamwisePDF()', '📄 PDF', 'red')}</div></div><div id="examwiseReportArea"></div></div>`;
+    rsBind('erxSessionYear', 'erxYear', erxFillExams);
   }
+}
+
+
+// Session-year dropdown for reports: lists the active session years of the chosen class and refills when the class changes.
+async function rsFill(syId, yearId) {
+  const sy = document.getElementById(syId), y = document.getElementById(yearId);
+  if (!sy || !y) return;
+  const year = y.value, keep = sy.value;
+  sy.innerHTML = '<option value="">Loading...</option>';
+  const years = year ? await getAvailableSessionYears(year) : [];
+  if (document.getElementById(syId) !== sy) return;
+  sy.innerHTML = (years.length ? '<option value="">Select session year</option>' : '<option value="">No active students</option>') + years.map(v => `<option value="${v}">${v}</option>`).join('');
+  if (years.map(String).includes(String(keep))) sy.value = keep; else if (years.length === 1) sy.value = years[0];
+}
+function rsBind(syId, yearId, after) {
+  const y = document.getElementById(yearId); if (!y) return;
+  y.addEventListener('change', async () => { await rsFill(syId, yearId); if (after) after(); });
+  rsFill(syId, yearId).then(() => { if (after) after(); });
 }
 
 function arToggleDates() {
@@ -30,7 +51,7 @@ async function loadAttendanceReport() {
 
   // session-year input
   const syInput = document.getElementById('arSessionYear');
-  if (!syInput || !syInput.value) return toastWarning('Please enter Session Year (YYYY)');
+  if (!syInput || !syInput.value) return toastWarning('Please select Session Year');
   const session_year = parseInt(syInput.value, 10);
 
   const area = document.getElementById('attendanceReportArea');
@@ -269,7 +290,7 @@ async function classStudents(year, cols, session_year) {
   const { data, error } = await db.from('students').select(cols || 'id, name, class_roll, reg_no, session, is_irregular, session_year')
     .eq('year', year).eq('session_year', session_year).eq('status', 'active').limit(2000);
   if (error) throw error;
-  return data || [];
+  return sortStudents(data || []);
 }
 // .or() filter for roll / reg (/ name when partial). Callers add .eq('year') and .eq('session_year') themselves.
 function rollFilter(q, partial) {
