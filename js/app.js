@@ -4,6 +4,7 @@
 // ============================================================
 (async () => {
   updateThemeIcon();
+  updateSortModeBtn();
   updateOnlineStatus();
   setInterval(updateOnlineStatus, 30000);
 

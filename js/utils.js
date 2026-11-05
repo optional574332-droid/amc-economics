@@ -77,20 +77,47 @@ function attrEsc(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ---- Roll / Reg ordering (global; remembered on this device) ----
+function getSortMode() { try { return localStorage.getItem('amcSortMode') === 'reg' ? 'reg' : 'roll'; } catch (e) { return 'roll'; } }
+function _cmpRoll(ar, br) {
+  ar = String(ar || '').trim(); br = String(br || '').trim();
+  const aM = ar.match(/^([A-Za-z-]*)(\d+)/), bM = br.match(/^([A-Za-z-]*)(\d+)/);
+  if (!aM || !bM) return ar.localeCompare(br);
+  const aP = aM[1] || '', bP = bM[1] || '';
+  if (!aP && bP) return -1;
+  if (aP && !bP) return 1;
+  if (aP === bP) return parseInt(aM[2], 10) - parseInt(bM[2], 10);
+  return aP.localeCompare(bP);
+}
+function _cmpReg(ar, br) {
+  ar = String(ar || '').trim(); br = String(br || '').trim();
+  if (!ar && !br) return 0;
+  if (!ar) return 1;   // no reg no. -> last
+  if (!br) return -1;
+  const ad = ar.replace(/\D/g, ''), bd = br.replace(/\D/g, '');
+  if (ad && bd) return ad.length - bd.length || ad.localeCompare(bd);
+  return ar.localeCompare(br);
+}
 function sortStudents(students) {
-  return students.slice().sort((a, b) => {
-    const ar = String(a.class_roll || '').trim();
-    const br = String(b.class_roll || '').trim();
-    const aM = ar.match(/^([A-Za-z-]*)(\d+)/);
-    const bM = br.match(/^([A-Za-z-]*)(\d+)/);
-    if (!aM || !bM) return ar.localeCompare(br);
-    const aP = aM[1] || '', bP = bM[1] || '';
-    const aN = parseInt(aM[2], 10), bN = parseInt(bM[2], 10);
-    if (!aP && bP) return -1;
-    if (aP && !bP) return 1;
-    if (aP === bP) return aN - bN;
-    return aP.localeCompare(bP);
-  });
+  const reg = getSortMode() === 'reg';
+  const roll = x => x.class_roll || (x.students && x.students.class_roll) || '';
+  const rg = x => x.reg_no || (x.students && x.students.reg_no) || '';
+  return students.slice().sort((a, b) => reg ? (_cmpReg(rg(a), rg(b)) || _cmpRoll(roll(a), roll(b))) : _cmpRoll(roll(a), roll(b)));
+}
+function updateSortModeBtn() {
+  const b = document.getElementById('sortModeBtn'); if (!b) return;
+  b.textContent = getSortMode() === 'reg' ? '🔢 Reg' : '🔢 Roll';
+  b.title = 'Order by ' + (getSortMode() === 'reg' ? 'Registration no.' : 'Class roll') + ' — tap to change';
+}
+function toggleSortMode() {
+  try { localStorage.setItem('amcSortMode', getSortMode() === 'reg' ? 'roll' : 'reg'); } catch (e) {}
+  updateSortModeBtn();
+  let refreshed = false;
+  if (typeof currentAttendanceData !== 'undefined' && currentAttendanceData && document.getElementById('attendanceReportArea')?.innerHTML.trim()) {
+    currentAttendanceData.report = sortStudents(currentAttendanceData.report); renderAttendanceReport(); refreshed = true;
+  }
+  if (typeof loadStudentList === 'function' && document.getElementById('studentListArea')?.innerHTML.trim()) { loadStudentList(); refreshed = true; }
+  toastSuccess('Order: ' + (getSortMode() === 'reg' ? 'Registration no.' : 'Class roll') + (refreshed ? '' : ' (applies when you load a list)'));
 }
 
 function shortDevice(deviceId) {
