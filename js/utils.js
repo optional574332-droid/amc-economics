@@ -217,9 +217,9 @@ function getOfflineQueue() {
   try { const q = localStorage.getItem('amc_offline_queue'); return q ? JSON.parse(q) : []; } catch (e) { return []; }
 }
 function saveOfflineQueue(q) { localStorage.setItem('amc_offline_queue', JSON.stringify(q)); }
-function queueAttendance(pin, roll, studentId) {
+function queueAttendance(pin, roll, studentId, geo) {
   const q = getOfflineQueue();
-  q.push({ pin, roll, studentId: studentId || null, deviceId, timestamp: Date.now() });
+  q.push({ pin, roll, studentId: studentId || null, deviceId, geo: geo || null, timestamp: Date.now() });
   saveOfflineQueue(q);
   updateOnlineStatus();
 }
@@ -235,7 +235,7 @@ async function syncOfflineQueue() {
     let synced = 0;
     for (const item of q) {
       try {
-        const { data, error } = item.studentId ? await db.rpc('student_mark_attendance_v3', { p_pin: item.pin, p_student_id: item.studentId, p_device_id: item.deviceId }) : await db.rpc('student_mark_attendance_v2', { p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId });
+        const { data, error } = item.studentId ? await (typeof markAttendanceGeo === 'function' ? markAttendanceGeo(item.pin, item.studentId, item.deviceId, item.geo) : db.rpc('student_mark_attendance_v3', { p_pin: item.pin, p_student_id: item.studentId, p_device_id: item.deviceId })) : await db.rpc('student_mark_attendance_v2', { p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId });
         if (error || !data?.ok) { remaining.push(item); } else { synced++; }
       } catch (e) { remaining.push(item); }
     }

@@ -410,15 +410,20 @@ async function confirmAndSubmit() {
   if (!pendingConfirmation) return;
   const { student } = pendingConfirmation;
   if (!navigator.onLine) {
-    queueAttendance(currentPinSession.pin, student.class_roll, student.id);
+    let geoQ = null;
+    if (typeof geoCfg !== 'undefined' && geoCfg.enabled) geoQ = await getPositionOnce();
+    queueAttendance(currentPinSession.pin, student.class_roll, student.id, geoQ);
     pendingConfirmation = null;
     showSuccessAndNext(student.name);
     return;
   }
   showGlobalLoader();
   try {
+    let geo = null;
+    const gcfg = (typeof getGeoConfig === 'function') ? await getGeoConfig() : { enabled: false };
+    if (gcfg.enabled) geo = await getPositionOnce();
     const { data, error } = student.id
-      ? await db.rpc('student_mark_attendance_v3', { p_pin: currentPinSession.pin, p_student_id: student.id, p_device_id: deviceId })
+      ? await (typeof markAttendanceGeo === 'function' ? markAttendanceGeo(currentPinSession.pin, student.id, deviceId, geo) : db.rpc('student_mark_attendance_v3', { p_pin: currentPinSession.pin, p_student_id: student.id, p_device_id: deviceId }))
       : await db.rpc('student_mark_attendance_v2', { p_pin: currentPinSession.pin, p_roll: student.class_roll, p_device_id: deviceId });
     if (error) {
       document.getElementById('modalContent').innerHTML = `<div class="text-center"><div class="text-6xl mb-3">❌</div><p class="text-red-500 font-bold">Network error</p><button onclick="showAttendanceForm()" class="w-full mt-4 bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;

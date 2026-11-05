@@ -299,10 +299,16 @@ async function tsLoadStudents(id) {
   const icons = { present: '✅', absent: '❌', late: '⏰', excused: '📝' };
   const cnt = st => recs.filter(r => r.status === st).length;
   const th = 'p-2 border dark:border-gray-600 dark:text-white';
+  const hasGeo = recs.some(r => r.geo_status);
+  const geoCell = r => {
+    const m = r.geo_distance_m != null ? r.geo_distance_m + ' m' : '';
+    const t = { inside: '📍 ' + m, outside: '⚠️ ' + m, no_location: '❓ no location', poor_accuracy: '📡 weak GPS' }[r.geo_status];
+    return `<td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(t || '-')}</td>`;
+  };
   box.innerHTML = `<p class="text-xs mb-2 dark:text-white">✅ ${cnt('present')} · ⏰ ${cnt('late')} · ❌ ${cnt('absent')} · 📝 ${cnt('excused')}</p>
     <div class="overflow-x-auto max-h-80 overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600">
-    <thead class="bg-gray-100 dark:bg-gray-600 sticky top-0"><tr><th class="${th} num-cell">Roll</th><th class="${th} num-cell">Reg</th><th class="${th} text-left">Name</th><th class="${th}">Status</th><th class="${th}">Time</th></tr></thead>
-    <tbody>${recs.map(r => `<tr class="dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(r.class_roll || '-')}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(r.reg_no || '-')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.name || '-')}${r.is_irregular ? ' <span class="text-[10px] text-amber-600">(I)</span>' : ''}</td><td class="p-2 border dark:border-gray-600 text-center">${icons[r.status] || ''} ${escapeHtml(r.status)}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(tsTime(r.marked_at))}</td></tr>`).join('')}</tbody></table></div>`;
+    <thead class="bg-gray-100 dark:bg-gray-600 sticky top-0"><tr><th class="${th} num-cell">Roll</th><th class="${th} num-cell">Reg</th><th class="${th} text-left">Name</th><th class="${th}">Status</th><th class="${th}">Time</th>${hasGeo ? `<th class="${th}">📍</th>` : ''}</tr></thead>
+    <tbody>${recs.map(r => `<tr class="dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(r.class_roll || '-')}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(r.reg_no || '-')}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.name || '-')}${r.is_irregular ? ' <span class="text-[10px] text-amber-600">(I)</span>' : ''}</td><td class="p-2 border dark:border-gray-600 text-center">${icons[r.status] || ''} ${escapeHtml(r.status)}</td><td class="p-2 border dark:border-gray-600 text-center num-cell">${escapeHtml(tsTime(r.marked_at))}</td>${hasGeo ? geoCell(r) : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 
 (function cleanPinCache() {
