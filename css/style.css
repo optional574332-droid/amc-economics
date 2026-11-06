@@ -264,13 +264,13 @@ html.dark nav.sticky { background: #101b2a !important; }
   box-shadow: none;
 }
 section > div.bg-white,
-section > div.dark\\:bg-gray-800 {
+section > div.dark\:bg-gray-800 {
   border: 1px solid var(--amc-border);
   border-radius: 20px;
   box-shadow: var(--amc-shadow);
 }
 html.dark section > div.bg-white,
-html.dark section > div.dark\\:bg-gray-800 {
+html.dark section > div.dark\:bg-gray-800 {
   background: #172638;
   border-color: #2b4055;
   box-shadow: 0 12px 34px rgba(0,0,0,.2);
