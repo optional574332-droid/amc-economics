@@ -221,3 +221,172 @@
   .tbtn-mail { background:linear-gradient(135deg,#6366f1,#8b5cf6); }
   .tchip { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
   .tchip-bcs { background:#fef3c7; color:#92400e; } .tchip-sub { background:#d1fae5; color:#065f46; }
+
+
+/* =========================================================
+   AMC ECONOMICS — VISUAL REFRESH (CSS ONLY)
+   No DOM, JavaScript, data, or interaction changes.
+   ========================================================= */
+:root {
+  color-scheme: light;
+  --amc-ink: #172b4d;
+  --amc-muted: #64748b;
+  --amc-navy: #102a43;
+  --amc-blue: #176b87;
+  --amc-teal: #0f8b8d;
+  --amc-border: #e2e8f0;
+  --amc-surface: #ffffff;
+  --amc-canvas: #f3f7fa;
+  --amc-shadow: 0 12px 34px rgba(16, 42, 67, .08);
+}
+html { scroll-behavior: smooth; }
+body {
+  color: var(--amc-ink);
+  background: var(--amc-canvas) !important;
+  background-image: none !important;
+  line-height: 1.55;
+}
+body::before { display: none !important; }
+html.dark { color-scheme: dark; }
+html.dark body {
+  color: #e5edf5;
+  background: #101b2a !important;
+}
+nav.sticky {
+  background: var(--amc-navy) !important;
+  box-shadow: 0 5px 22px rgba(9, 30, 54, .18);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+html.dark nav.sticky { background: #101b2a !important; }
+.brand-chip {
+  border-radius: 12px;
+  background: linear-gradient(145deg, #e7f7f7, #c8e9ec);
+  box-shadow: none;
+}
+section > div.bg-white,
+section > div.dark\\:bg-gray-800 {
+  border: 1px solid var(--amc-border);
+  border-radius: 20px;
+  box-shadow: var(--amc-shadow);
+}
+html.dark section > div.bg-white,
+html.dark section > div.dark\\:bg-gray-800 {
+  background: #172638;
+  border-color: #2b4055;
+  box-shadow: 0 12px 34px rgba(0,0,0,.2);
+}
+#homeSection > div.bg-white {
+  border-top: 4px solid var(--amc-teal);
+}
+h1, h2, h3, h4 { letter-spacing: -.02em; }
+h2 { line-height: 1.25; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button { transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid rgba(15,139,141,.28);
+  outline-offset: 2px;
+}
+input, select, textarea {
+  border-radius: 11px;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--amc-teal) !important;
+  box-shadow: 0 0 0 3px rgba(15,139,141,.13) !important;
+}
+.tab-strip { gap: 7px; }
+.tab-pill {
+  color: #31536a;
+  background: #edf4f7;
+  border: 1px solid #d7e5eb;
+  border-radius: 10px;
+  box-shadow: none;
+  padding: 9px 14px;
+}
+.tab-pill:hover { color: var(--amc-navy); background: #e1eff2; transform: translateY(-1px); }
+.tab-pill.active {
+  color: #fff;
+  background: var(--amc-blue);
+  border-color: var(--amc-blue);
+  box-shadow: 0 4px 12px rgba(23,107,135,.2);
+}
+html.dark .tab-pill { color: #c7dbe5; background: #20364a; border-color: #345168; }
+html.dark .tab-pill.active { color: #fff; background: #147f89; border-color: #147f89; }
+.seg { background: #edf4f7; border-color: #d7e5eb; }
+.seg-btn { color: #31536a; }
+.seg-btn.active { background: var(--amc-blue); box-shadow: 0 3px 10px rgba(23,107,135,.2); }
+html.dark .seg { background: #20364a; border-color: #345168; }
+html.dark .seg-btn { color: #c7dbe5; }
+html.dark .seg-btn.active { color: #fff; background: #147f89; }
+#adminDashboardSection > div,
+#teacherDashboardSection > div,
+#studentDashboardSection > div { padding: clamp(16px, 2.5vw, 28px); }
+#adminDashboardStats > div {
+  border: 1px solid var(--amc-border);
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(16,42,67,.04);
+}
+html.dark #adminDashboardStats > div { border-color: #2b4055; }
+#adminContent .bg-white,
+#teacherContent .bg-white,
+#studentContent .bg-white {
+  border: 1px solid var(--amc-border);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(16,42,67,.045);
+}
+html.dark #adminContent .bg-white,
+html.dark #teacherContent .bg-white,
+html.dark #studentContent .bg-white {
+  border-color: #2b4055;
+  box-shadow: 0 4px 16px rgba(0,0,0,.14);
+}
+table { border-collapse: separate; border-spacing: 0; }
+th { font-weight: 700; letter-spacing: .01em; }
+td, th { border-color: var(--amc-border); }
+html.dark td, html.dark th { border-color: #2b4055; }
+.teacher-bottom-nav {
+  background: rgba(255,255,255,.97);
+  border-top: 1px solid var(--amc-border);
+  box-shadow: 0 -5px 22px rgba(16,42,67,.08);
+  backdrop-filter: blur(14px);
+}
+html.dark .teacher-bottom-nav {
+  background: rgba(16,27,42,.97);
+  border-color: #2b4055;
+}
+.teacher-bottom-nav button.active { color: var(--amc-teal); }
+html.dark .teacher-bottom-nav button.active { color: #55c6c2; }
+.pin-box {
+  border-color: #c9dce3;
+  border-radius: 14px;
+  background: #eff7f8;
+  color: var(--amc-navy);
+}
+.pin-box:focus { border-color: var(--amc-teal); box-shadow: 0 5px 18px rgba(15,139,141,.16); }
+.pin-box.filled { border-color: var(--amc-teal); background: #e0f3f1; }
+html.dark .pin-box { border-color: #345168; background: #20364a; color: #e2f1f5; }
+html.dark .pin-box.filled { border-color: #55c6c2; background: #17454a; }
+.tcard { border-color: var(--amc-border); box-shadow: 0 8px 24px rgba(16,42,67,.07); }
+.tcard-head { background: var(--amc-navy); }
+html.dark .tcard-head { background: #102a43; }
+.tcard-row .ico { background: #e7f3f4; color: var(--amc-blue); }
+html.dark .tcard-row .ico { background: #203d50; }
+.suggestion-box { border-color: #b8d7dc; }
+.suggestion-item:hover, .suggestion-item.active { background: #e7f3f4; }
+html.dark .suggestion-item:hover, html.dark .suggestion-item.active { background: #20505a; }
+#networkBanner { background: #a85d16; }
+#globalLoader { backdrop-filter: blur(5px); }
+#offlineBadge { border-radius: 12px; }
+@media (max-width: 768px) {
+  nav.sticky > div { gap: 8px; }
+  #adminDashboardSection, #teacherDashboardSection, #studentDashboardSection { margin-top: 14px; }
+  #adminDashboardSection > div,
+  #teacherDashboardSection > div,
+  #studentDashboardSection > div { border-radius: 16px; }
+  .teacher-bottom-nav { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .teacher-bottom-nav button { min-height: 44px; }
+  .tab-strip.scroll { scroll-snap-type: x proximity; }
+  .tab-strip.scroll .tab-pill { scroll-snap-align: start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
