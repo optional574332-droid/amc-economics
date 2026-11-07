@@ -2,6 +2,14 @@
 // ============================================================
 // OTP PIN INPUT
 // ============================================================
+let pinSubmitTimer = null;
+let pinSubmitting = false;
+
+function schedulePinSubmit(delay = 450) {
+  if (pinSubmitTimer) clearTimeout(pinSubmitTimer);
+  pinSubmitTimer = setTimeout(() => { pinSubmitTimer = null; submitPin(); }, delay);
+}
+
 function setupPinBoxes() {
   const boxes = document.querySelectorAll('.pin-box');
   if (!boxes.length) return;
@@ -22,7 +30,7 @@ function setupPinBoxes() {
         }
         const nextEmpty = Array.from(fresh).findIndex(b => !b.value);
         if (nextEmpty >= 0) fresh[nextEmpty].focus();
-        else { fresh[fresh.length - 1].focus(); submitPin(); }
+        else { fresh[fresh.length - 1].focus(); schedulePinSubmit(); }
         return;
       }
       e.target.value = val.slice(-1);
@@ -31,7 +39,7 @@ function setupPinBoxes() {
         if (idx < fresh.length - 1) {
           fresh[idx + 1].focus();
         } else {
-          setTimeout(() => submitPin(), 80);
+          schedulePinSubmit();
         }
       } else {
         box.classList.remove('filled');
@@ -62,10 +70,11 @@ function setupPinBoxes() {
         fresh[idx + i].value = pasted[i];
         fresh[idx + i].classList.add('filled');
       }
-      if (pasted.length === 4) submitPin();
+      if (pasted.length === 4) schedulePinSubmit();
       else fresh[Math.min(idx + pasted.length, fresh.length - 1)].focus();
     });
   });
+  document.getElementById('pinVerifyBtn')?.addEventListener('click', submitPin);
   fresh[0]?.focus();
 }
 
@@ -118,6 +127,22 @@ function disablePinBoxes(disabled) {
 }
 
 async function submitPin() {
+  if (pinSubmitting) return;
+  if (pinSubmitTimer) { clearTimeout(pinSubmitTimer); pinSubmitTimer = null; }
+  pinSubmitting = true;
+  const verifyBtn = document.getElementById('pinVerifyBtn');
+  if (verifyBtn) { verifyBtn.disabled = true; verifyBtn.textContent = 'Verifying…'; }
+  disablePinBoxes(true);
+  try {
+    await submitPinRequest();
+  } finally {
+    pinSubmitting = false;
+    disablePinBoxes(false);
+    if (verifyBtn) { verifyBtn.disabled = false; verifyBtn.textContent = 'Verify PIN'; }
+  }
+}
+
+async function submitPinRequest() {
   const pin = getPinFromBoxes();
   if (pin.length !== 4) {
     showPinError('Please enter all 4 digits');

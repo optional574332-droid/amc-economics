@@ -7,7 +7,9 @@ async function studentLogin() {
   const roll = document.getElementById('studentRoll').value.trim();
   const regVerify = document.getElementById('studentRegVerify').value.trim();
   
-  document.getElementById('studentErr').textContent = '';
+  const errEl = document.getElementById('studentErr');
+  errEl.textContent = '';
+  setLoginButtonLoading('studentLoginBtn', true);
   showGlobalLoader();
   
   try {
@@ -40,8 +42,12 @@ async function studentLogin() {
     loadStudentData();
     toastSuccess(`Welcome, ${data.name}`);
 
+  } catch (e) {
+    console.error('Student login error:', e);
+    errEl.textContent = 'Login failed. Check your connection and try again.';
   } finally { 
-    hideGlobalLoader(); 
+    hideGlobalLoader();
+    setLoginButtonLoading('studentLoginBtn', false);
   }
 }
 

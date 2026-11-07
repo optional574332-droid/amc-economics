@@ -8,6 +8,7 @@ async function teacherLogin() {
   const errEl = document.getElementById('teacherErr');
   errEl.textContent = '';
   if (!userId || !pin) { errEl.textContent = 'Enter User ID and PIN'; return; }
+  setLoginButtonLoading('teacherLoginBtn', true);
   showGlobalLoader();
   try {
     const { data, error } = await db.rpc('teacher_login', { p_user_id: userId, p_pin: pin });
@@ -28,7 +29,13 @@ async function teacherLogin() {
     loadScheduledClassBanner();
     if (scheduledBannerInterval) clearInterval(scheduledBannerInterval);
     scheduledBannerInterval = setInterval(loadScheduledClassBanner, 60000);
-  } finally { hideGlobalLoader(); }
+  } catch (e) {
+    console.error('Teacher login error:', e);
+    errEl.textContent = 'Login failed. Check your connection and try again.';
+  } finally {
+    hideGlobalLoader();
+    setLoginButtonLoading('teacherLoginBtn', false);
+  }
 }
 
 async function showTeacherTab(tab) {
@@ -47,7 +54,8 @@ async function showTeacherTab(tab) {
     if (activeSess && activeSess.length > 0) {
       const s = activeSess[0];
       const m = Math.max(0, Math.floor((new Date(s.expires_at) - new Date()) / 60000));
-      el.innerHTML = `<div class="space-y-4 max-w-lg"><h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3><div class="bg-emerald-50 dark:bg-emerald-900/30 p-4 rounded-xl border-2 border-emerald-300 dark:border-emerald-700"><p class="text-sm text-emerald-700 dark:text-emerald-300 font-bold">🟢 Active class</p></div><div id="pinDisplay"></div></div>`;
+      el.innerHTML = `<div class="space-y-4 max-w-lg"><div class="flex justify-between items-center gap-2 flex-wrap"><h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3><button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button></div><div class="bg-emerald-50 dark:bg-emerald-900/30 p-4 rounded-xl border-2 border-emerald-300 dark:border-emerald-700"><p class="text-sm text-emerald-700 dark:text-emerald-300 font-bold">🟢 Active class</p></div><div id="pinDisplay"></div></div>`;
+      updateSortModeBtn();
       renderPinDisplay(s.pin, s.id, m, s.expires_at);
       return;
     }
@@ -56,13 +64,14 @@ async function showTeacherTab(tab) {
     const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${escapeHtml(yearLabel(c.year))}</option>`).join('') || '<option value="">No courses</option>';
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
-        <h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3>
+        <div class="flex justify-between items-center gap-2 flex-wrap"><h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3><button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button></div>
         ${teacherPickerHtml('at', 'atCourseSelect', 'atSessionYear')}
 
         <input type="date" id="atDate" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         <button onclick="generatePin()" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold btn-pop w-full">🎲 Generate PIN</button>
         <div id="pinDisplay"></div>
       </div>`;
+    updateSortModeBtn();
     const dateInput = document.getElementById('atDate');
     if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
 

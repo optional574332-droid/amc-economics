@@ -1,3 +1,19 @@
+/* Login button state shared by Admin, Teacher and Student forms. */
+function setLoginButtonLoading(buttonId, loading, busyText = 'Signing in…') {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+  if (loading) {
+    if (!button.dataset.idleText) button.dataset.idleText = button.textContent.trim();
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = busyText;
+  } else {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.textContent = button.dataset.idleText || 'Login';
+  }
+}
+
 /* js/auth.js — Admin লগইন + লগআউট */
 // ============================================================
 // ADMIN LOGIN
@@ -5,7 +21,9 @@
 async function adminLogin() {
   const email = document.getElementById('adminEmail').value.trim();
   const password = document.getElementById('adminPass').value;
-  document.getElementById('adminErr').textContent = '';
+  const errEl = document.getElementById('adminErr');
+  errEl.textContent = '';
+  setLoginButtonLoading('adminLoginBtn', true);
   showGlobalLoader();
   try {
     const { data, error } = await db.auth.signInWithPassword({ email, password });
@@ -20,7 +38,13 @@ async function adminLogin() {
     loadAdminDashboardStats();
     showAdminTab('manageTeacher');
     toastSuccess('Admin login successful');
-  } finally { hideGlobalLoader(); }
+  } catch (e) {
+    console.error('Admin login error:', e);
+    errEl.textContent = 'Login failed. Check your connection and try again.';
+  } finally {
+    hideGlobalLoader();
+    setLoginButtonLoading('adminLoginBtn', false);
+  }
 }
 
 async function logout() {

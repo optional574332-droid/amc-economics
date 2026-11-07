@@ -287,7 +287,12 @@ function toggleTheme() {
 }
 function updateThemeIcon() {
   const b = document.getElementById('themeToggleBtn');
-  if (b) b.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+  if (b) {
+    const isDark = document.documentElement.classList.contains('dark');
+    b.textContent = isDark ? '☀️' : '🌙';
+    b.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+    b.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+  }
 }
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if ((localStorage.getItem('amc_theme') || 'auto') === 'auto') {
