@@ -10,7 +10,7 @@ function showReportTab(tab) {
   const box = 'bg-gray-50 dark:bg-gray-700 p-4 rounded-xl';
   const btn = (fn, label, c) => `<button onclick="${fn}" class="bg-${c}-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">${label}</button>`;
   if (tab === 'attendance') {
-    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="arSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arAll" checked onchange="arToggleDates()"> All dates</label><input type="date" id="arFrom" disabled class="${inp}"><input type="date" id="arTo" disabled class="${inp}"></div><label class="flex items-center gap-2 text-xs font-semibold mb-3 dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
+    el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="arSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arAll" checked onchange="arToggleDates()"> All dates</label><input type="date" id="arFrom" disabled class="${inp}"><input type="date" id="arTo" disabled class="${inp}"></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button></div><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
     rsBind('arSessionYear', 'arYear');
   } else if (tab === 'exam') {
     el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="erSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('erYear')}<input id="erCourse" placeholder="Course code" class="${inp}"><button onclick="loadExamReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2">${btn('exportExamExcel()', '📊 Excel', 'emerald')}${btn('exportExamPDF()', '📄 PDF', 'red')}</div></div><div id="examReportArea"></div></div>`;
@@ -101,7 +101,8 @@ async function loadAttendanceReport() {
 }
 function attendanceRowsShown() {
   const d = currentAttendanceData; if (!d) return [];
-  return document.getElementById('arLow')?.checked ? d.report.filter(r => r.pct < PASS_PCT) : d.report;
+  const filtered = document.getElementById('arLow')?.checked ? d.report.filter(r => r.pct < PASS_PCT) : d.report;
+  return sortStudents(filtered);
 }
 function renderAttendanceReport() {
   const d = currentAttendanceData, area = document.getElementById('attendanceReportArea');
@@ -119,6 +120,7 @@ function renderAttendanceReport() {
     </thead>
     <tbody>${rows.map(r => { const low = r.pct < PASS_PCT; return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="${td}">${escapeHtml(r.class_roll)}</td><td class="${td}">${escapeHtml(r.reg_no)}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.name)}${r.irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</td>${d.courses.map(c => `<td class="${td}">${r.courseCounts[c] || 0}</td>`).join('')}<td class="${td} font-bold">${r.total}</td><td class="${td} font-bold ${low ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}">${r.pct.toFixed(1)}%</td></tr>`; }).join('') || `<tr><td colspan="${d.courses.length + 5}" class="text-center py-4 text-gray-400">No students</td></tr>`}</tbody>
     </table></div>`;
+  updateSortModeBtn();
 }
 
 async function exportAttendanceExcel() {
