@@ -203,7 +203,6 @@ function showStudentSubTab(subTab) {
             </select>
             <input id="lstSearch" placeholder="Name/roll" class="border-2 rounded-xl p-2 text-sm flex-1 dark:bg-gray-600 dark:text-white dark:border-gray-500">
             <button onclick="loadStudentList()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm">Search</button>
-            <button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button>
           </div>
         </div>
         <div id="studentListArea"></div>
@@ -496,7 +495,6 @@ async function loadStudentList() {
           <button class="student-action-btn bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-xs" data-id="${escapeHtml(s.id)}">⚙️</button>
         </div>`).join('')}
     </div>`;
-  updateSortModeBtn();
   area.querySelectorAll('.student-action-btn').forEach(b => b.addEventListener('click', () => showStudentActions(b.dataset.id)));
 }
 
