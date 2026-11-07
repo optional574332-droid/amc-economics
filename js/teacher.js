@@ -64,7 +64,7 @@ async function showTeacherTab(tab) {
     const courseOpts = dedupeCourses(myCourses).map(c => `<option value="${c.course_code}|${c.year}">${escapeHtml(courseLabel(c.course_code))} — ${escapeHtml(yearLabel(c.year))}</option>`).join('') || '<option value="">No courses</option>';
     el.innerHTML = `
       <div class="space-y-4 max-w-lg">
-        <h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3>
+        <div class="flex justify-between items-center gap-2 flex-wrap"><h3 class="text-lg font-bold dark:text-white">📝 Take Attendance</h3><button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button></div>
         ${teacherPickerHtml('at', 'atCourseSelect', 'atSessionYear')}
 
         <input type="date" id="atDate" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
