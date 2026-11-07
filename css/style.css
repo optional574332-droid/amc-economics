@@ -390,3 +390,29 @@ html.dark .suggestion-item:hover, html.dark .suggestion-item.active { background
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+
+/* Shared solid tabs for Admin Student and Reports */
+.admin-subtabs .admin-subtab,
+button.admin-subtab {
+  color: #31536a;
+  background: #e8f0f4;
+  border: 1px solid #d4e1e8;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 650;
+  box-shadow: none;
+}
+.admin-subtabs .admin-subtab:hover,
+button.admin-subtab:hover { color: #102a43; background: #dceaf0; }
+.admin-subtabs .admin-subtab.active,
+button.admin-subtab.active {
+  color: #fff;
+  background: #176b87;
+  border-color: #176b87;
+  box-shadow: 0 4px 12px rgba(23,107,135,.2);
+}
+html.dark .admin-subtabs .admin-subtab,
+html.dark button.admin-subtab { color: #d3e3ec; background: #20364a; border-color: #345168; }
+html.dark .admin-subtabs .admin-subtab.active,
+html.dark button.admin-subtab.active { color: #fff; background: #147f89; border-color: #147f89; }

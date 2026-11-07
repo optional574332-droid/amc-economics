@@ -29,3 +29,11 @@ if ('serviceWorker' in navigator) {
       .catch(err => console.log('❌ SW error:', err));
   });
 }
+
+
+// A page restored from the browser back-forward cache must not revive an admin view.
+window.addEventListener('pageshow', event => {
+  if (event.persisted) {
+    db.auth.signOut({ scope: 'local' }).finally(() => showSection('home'));
+  }
+});

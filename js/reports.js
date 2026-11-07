@@ -3,6 +3,7 @@
 // REPORTS
 // ============================================================
 function showReportTab(tab) {
+  document.querySelectorAll('[data-report-subtab]').forEach(b => b.classList.toggle('active', b.dataset.reportSubtab === tab));
   const el = document.getElementById('reportContent');
   const inp = 'border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500';
   const yr = (id, onchange) => classPickerHtml(id, { placeholder: 'Class', cls: inp, onchange });

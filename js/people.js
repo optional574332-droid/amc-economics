@@ -151,6 +151,7 @@ async function toggleTeacherStatus(id, currentStatus) {
 // STUDENT MANAGEMENT
 // ============================================================
 function showStudentSubTab(subTab) {
+  document.querySelectorAll('[data-student-subtab]').forEach(b => b.classList.toggle('active', b.dataset.studentSubtab === subTab));
   const el = document.getElementById('studentSubContent');
 
   if (subTab === 'addExcel') {
@@ -195,7 +196,7 @@ function showStudentSubTab(subTab) {
       <div class="space-y-3">
         <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-xl">
           <div class="flex gap-2 flex-wrap">
-            <input id="lstSessionYear" type="number" placeholder="Session year" class="border-2 rounded-xl p-2 text-sm w-32 dark:bg-gray-600 dark:text-white dark:border-gray-500">
+            <select id="lstSessionYear" class="border-2 rounded-xl p-2 text-sm w-40 dark:bg-gray-600 dark:text-white dark:border-gray-500"><option value="">All active sessions</option></select>
             ${classPickerHtml('lstYear', { allCats: true, placeholder: 'All years', cls: 'border-2 rounded-xl p-2 text-sm dark:bg-gray-600 dark:text-white dark:border-gray-500' })}
             <select id="lstStatus" class="border-2 rounded-xl p-2 text-sm dark:bg-gray-600 dark:text-white dark:border-gray-500">
               <option value="active">✅ Active</option><option value="tc">📤 TC</option><option value="inactive">❌ Inactive</option><option value="graduated">🎓 Graduated</option><option value="">All</option>
@@ -206,6 +207,7 @@ function showStudentSubTab(subTab) {
         </div>
         <div id="studentListArea"></div>
       </div>`;
+    fillStudentSessionYears();
     loadStudentList();
   }
   else if (subTab === 'promote') {
@@ -445,6 +447,24 @@ status.innerHTML = '<p class="text-gray-500">⏳...</p>';
     } catch (err) { status.innerHTML = `<p class="text-red-500">❌ ${escapeHtml(err.message)}</p>`; }
   };
   reader.readAsArrayBuffer(file);
+}
+
+async function fillStudentSessionYears() {
+  const select = document.getElementById('lstSessionYear');
+  if (!select) return;
+  const keep = select.value;
+  select.innerHTML = '<option value="">Loading sessions...</option>';
+  const { data, error } = await db.from('students').select('session_year')
+    .eq('status', 'active').not('session_year', 'is', null).order('session_year', { ascending: false });
+  if (document.getElementById('lstSessionYear') !== select) return;
+  if (error) {
+    select.innerHTML = '<option value="">All active sessions</option>';
+    console.error('Could not load active session years:', error);
+    return;
+  }
+  const years = [...new Set((data || []).map(x => Number(x.session_year)).filter(Number.isFinite))].sort((a, b) => b - a);
+  select.innerHTML = '<option value="">All active sessions</option>' + years.map(y => '<option value="' + y + '">' + y + '</option>').join('');
+  if (years.map(String).includes(String(keep))) select.value = keep;
 }
 
 async function loadStudentList() {

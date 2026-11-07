@@ -160,11 +160,11 @@ async function showAdminTab(tab) {
       <div class="space-y-4">
         <h3 class="text-lg font-bold dark:text-white">🎓 Student Management</h3>
         <div class="flex gap-2 flex-wrap text-xs">
-          <button onclick="showStudentSubTab('addExcel')" class="bg-emerald-500 text-white px-3 py-2 rounded-lg">📂 Excel</button>
-          <button onclick="showStudentSubTab('addManual')" class="bg-blue-500 text-white px-3 py-2 rounded-lg">✍️ Manual</button>
-          <button onclick="showStudentSubTab('list')" class="bg-purple-500 text-white px-3 py-2 rounded-lg">📋 List</button>
-          <button onclick="showStudentSubTab('bulkUpdate')" class="bg-orange-500 text-white px-3 py-2 rounded-lg">🔄 Bulk</button>
-<button onclick="showStudentSubTab('promote')" class="bg-teal-600 text-white px-3 py-2 rounded-lg">⬆️ Promote</button>
+          <button data-student-subtab="addExcel" onclick="showStudentSubTab('addExcel')" class="admin-subtab active">📂 Excel</button>
+          <button data-student-subtab="addManual" onclick="showStudentSubTab('addManual')" class="admin-subtab">✍️ Manual</button>
+          <button data-student-subtab="list" onclick="showStudentSubTab('list')" class="admin-subtab">📋 List</button>
+          <button data-student-subtab="bulkUpdate" onclick="showStudentSubTab('bulkUpdate')" class="admin-subtab">🔄 Bulk</button>
+<button data-student-subtab="promote" onclick="showStudentSubTab('promote')" class="admin-subtab">⬆️ Promote</button>
         </div>
         <div id="studentSubContent"></div>
       </div>`;
@@ -262,10 +262,10 @@ async function showAdminTab(tab) {
       <div class="space-y-4">
         <h3 class="text-lg font-bold dark:text-white">📊 Reports</h3>
         <div class="flex gap-2 flex-wrap text-xs">
-          <button onclick="showReportTab('attendance')" class="bg-indigo-500 text-white px-4 py-2 rounded-lg">📋 Attendance</button>
-          <button onclick="showReportTab('exam')" class="bg-amber-500 text-white px-4 py-2 rounded-lg">📝 Marks</button>
-          <button onclick="showReportTab('individual')" class="bg-pink-500 text-white px-4 py-2 rounded-lg">🎓 Individual</button>
-          <button onclick="showReportTab('examwise')" class="bg-teal-600 text-white px-4 py-2 rounded-lg">🏆 Exam Result</button>
+          <button data-report-subtab="attendance" onclick="showReportTab('attendance')" class="admin-subtab active">📋 Attendance</button>
+          <button data-report-subtab="exam" onclick="showReportTab('exam')" class="admin-subtab">📝 Marks</button>
+          <button data-report-subtab="individual" onclick="showReportTab('individual')" class="admin-subtab">🎓 Individual</button>
+          <button data-report-subtab="examwise" onclick="showReportTab('examwise')" class="admin-subtab">🏆 Exam Result</button>
         </div>
         <div id="reportContent"></div>
       </div>`;
