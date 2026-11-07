@@ -131,8 +131,8 @@
 <section id="adminLoginSection" class="hidden fade-in max-w-md mx-auto mt-8 px-4">
   <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8">
     <h2 class="text-2xl font-extrabold text-gray-800 dark:text-white mb-6">🔐 Admin Login</h2>
-    <input id="adminEmail" type="email" placeholder="Email" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-3 focus:border-indigo-500 focus:outline-none">
-    <input id="adminPass" type="password" placeholder="Password" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-4 focus:border-indigo-500 focus:outline-none">
+    <input id="adminEmail" name="email" type="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Email" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-3 focus:border-indigo-500 focus:outline-none">
+    <input id="adminPass" name="password" type="password" autocomplete="current-password" placeholder="Password" class="w-full border-2 border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl p-3 mb-4 focus:border-indigo-500 focus:outline-none">
     <button onclick="adminLogin()" class="w-full bg-gray-800 dark:bg-gray-600 text-white py-3 rounded-xl btn-pop font-bold">Login</button>
     <p id="adminErr" class="text-red-500 text-sm mt-2 font-semibold"></p>
   </div>
