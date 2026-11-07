@@ -416,3 +416,14 @@ html.dark .admin-subtabs .admin-subtab,
 html.dark button.admin-subtab { color: #d3e3ec; background: #20364a; border-color: #345168; }
 html.dark .admin-subtabs .admin-subtab.active,
 html.dark button.admin-subtab.active { color: #fff; background: #147f89; border-color: #147f89; }
+
+
+/* P0/P1 accessibility and navigation refinements */
+#mobileMenu { background: #102a43 !important; }
+.chip-none { color: #78350f; background: #fef3c7; }
+html.dark .chip-none { color: #ffedb5; background: #654b12; }
+.text-gray-400 { color: #64748b; }
+html.dark .text-gray-400 { color: #9ca3af; }
+#pinVerifyBtn:disabled, button:disabled { cursor: not-allowed; opacity: .62; }
+.tcard-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 360px) { .pin-box { width: 54px; height: 64px; } }
