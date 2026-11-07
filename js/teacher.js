@@ -141,6 +141,7 @@ async function showTeacherTab(tab) {
         <div id="teacherAttendanceReportArea"></div>
       </div>`;
     tpInit('tar', 'tarCourse', 'tarSY', dedupeCourses(myCourses), { all: true });
+    updateSortModeBtn();
   }
   else if (tab === 'myCourses') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id).order('session', { ascending: false });
