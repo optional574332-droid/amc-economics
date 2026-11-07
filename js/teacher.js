@@ -519,7 +519,7 @@ function renderTeacherAttendanceReport() {
   const data = currentTeacherAttendanceData;
   const area = document.getElementById('teacherAttendanceReportArea');
   if (!data || !area) return;
-  const { rows } = data;
+  const { rows, fromDate, toDate } = data;
   const tP = rows.reduce((s, r) => s + r.present, 0), tA = rows.reduce((s, r) => s + r.absent, 0), tL = rows.reduce((s, r) => s + r.late, 0), tE = rows.reduce((s, r) => s + r.excused, 0);
   area.innerHTML = `
     <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl mb-3">
