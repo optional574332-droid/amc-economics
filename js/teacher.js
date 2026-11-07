@@ -131,7 +131,8 @@ async function showTeacherTab(tab) {
             <div><label class="block text-xs font-bold mb-1 dark:text-white">From</label><input type="date" id="tarFrom" value="${today}" class="w-full border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"></div>
             <div><label class="block text-xs font-bold mb-1 dark:text-white">To</label><input type="date" id="tarTo" value="${today}" class="w-full border-2 rounded-xl p-2 dark:bg-gray-600 dark:text-white dark:border-gray-500"></div>
           </div>
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap items-center">
+            <button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button>
             <button onclick="loadTeacherAttendanceReport()" class="flex-1 bg-teal-600 text-white px-4 py-3 rounded-xl font-bold btn-pop">🔍</button>
             <button onclick="exportTeacherAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold btn-pop text-sm">📊</button>
             <button onclick="exportTeacherAttendancePDF()" class="bg-red-600 text-white px-4 py-3 rounded-xl font-bold btn-pop text-sm">📄</button>
@@ -510,6 +511,14 @@ async function loadTeacherAttendanceReport() {
   const rows = Object.values(byS).filter(x => x.records.length > 0).map(({ session, records }) => ({ session, records, present: records.filter(r => r.status === 'present').length, absent: records.filter(r => r.status === 'absent').length, late: records.filter(r => r.status === 'late').length, excused: records.filter(r => r.status === 'excused').length }));
   if (!rows.length) { currentTeacherAttendanceData = null; area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes with attendance in this period</p>'; return; }
   currentTeacherAttendanceData = { fromDate, toDate, rows, courseLabel: cv || 'All courses' };
+  renderTeacherAttendanceReport();
+}
+
+function renderTeacherAttendanceReport() {
+  const data = currentTeacherAttendanceData;
+  const area = document.getElementById('teacherAttendanceReportArea');
+  if (!data || !area) return;
+  const { rows } = data;
   const tP = rows.reduce((s, r) => s + r.present, 0), tA = rows.reduce((s, r) => s + r.absent, 0), tL = rows.reduce((s, r) => s + r.late, 0), tE = rows.reduce((s, r) => s + r.excused, 0);
   area.innerHTML = `
     <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl mb-3">
@@ -541,6 +550,7 @@ async function loadTeacherAttendanceReport() {
           </div>
         </details>`).join('')}
     </div>`;
+  updateSortModeBtn();
 }
 
 async function changeAttendanceStatus(recordId, currentStatus) {
@@ -559,7 +569,7 @@ async function exportTeacherAttendanceExcel() {
   const { fromDate, toDate, rows } = currentTeacherAttendanceData;
   const data = [['Date', 'Course', 'PIN', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']];
   rows.forEach(({ session, records }) => {
-    records.forEach(r => {
+    sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', reg_no: r.students?.reg_no || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
       data.push([session.date, courseLabel(session.course_code), session.pin, r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
     });
