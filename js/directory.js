@@ -108,7 +108,7 @@ function renderTeacherDirectory() {
         ${t.email ? `<a href="mailto:${attrEsc(t.email)}" class="tcard-row"><span class="ico">✉️</span><span>${escapeHtml(t.email)}</span></a>` : ''}
         ${bio ? `<div><p class="tcard-bio ${bio.length > 140 ? 'clamp3' : ''}">${escapeHtml(bio)}</p>${bio.length > 140 ? `<button class="tcard-more" onclick="const p=this.previousElementSibling;p.classList.toggle('clamp3');this.textContent=p.classList.contains('clamp3')?'Read more ▾':'Show less ▴'">Read more ▾</button>` : ''}</div>` : ''}
         ${hasInfo ? '' : '<p class="tcard-empty">Profile details not added yet</p>'}
-        ${actions.length ? `<div class="tcard-actions" style="grid-template-columns:repeat(${actions.length},1fr)">${actions.join('')}</div>` : ''}
+        ${actions.length ? `<div class="tcard-actions" style="grid-template-columns:repeat(${Math.min(actions.length, 2)},minmax(0,1fr))">${actions.join('')}</div>` : ''}
       </div>
     </div>`;
   }).join('');
