@@ -4,10 +4,10 @@
 // Updated: 2026-11-05
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v14';
-const STATIC_CACHE  = 'amc-static-v14';
-const DYNAMIC_CACHE = 'amc-dynamic-v14';
-const CDN_CACHE     = 'amc-cdn-v14';
+const CACHE_NAME    = 'amc-attendance-v15';
+const STATIC_CACHE  = 'amc-static-v15';
+const DYNAMIC_CACHE = 'amc-dynamic-v15';
+const CDN_CACHE     = 'amc-cdn-v15';
 
 const urlsToCache = [
   './',
