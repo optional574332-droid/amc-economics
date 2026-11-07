@@ -116,8 +116,9 @@ function toggleSortMode() {
   if (typeof currentAttendanceData !== 'undefined' && currentAttendanceData && document.getElementById('attendanceReportArea')?.innerHTML.trim()) {
     currentAttendanceData.report = sortStudents(currentAttendanceData.report); renderAttendanceReport(); refreshed = true;
   }
+  if (typeof renderTeacherAttendanceReport === 'function' && currentTeacherAttendanceData && document.getElementById('teacherAttendanceReportArea')?.innerHTML.trim()) { renderTeacherAttendanceReport(); refreshed = true; }
   if (typeof loadStudentList === 'function' && document.getElementById('studentListArea')?.innerHTML.trim()) { loadStudentList(); refreshed = true; }
-  toastSuccess('Order: ' + (getSortMode() === 'reg' ? 'Registration no.' : 'Class roll') + (refreshed ? '' : ' (applies when you load a list)'));
+  toastSuccess('Order: ' + (getSortMode() === 'reg' ? 'Registration no.' : 'Class roll') + (refreshed ? '' : ' (applies when you load a report/list)'));
 }
 
 function shortDevice(deviceId) {
