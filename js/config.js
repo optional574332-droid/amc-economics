@@ -4,7 +4,11 @@
 // ============================================================
 const SUPABASE_URL = 'https://zalzlqabfbpxnavbxchx.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_O3FCdhsMo4gviKn_B6_XLg_5tA-V5S0';
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Admin auth is memory-only; page/browser reopen requires fresh credentials.
+// Browser password managers can save credentials independently.
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false }
+});
 
 let currentTeacher = null;
 let currentStudent = null;
