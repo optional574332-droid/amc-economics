@@ -1,6 +1,4 @@
-/* js/geo.js — জিও-লোকেশন: ছাত্র হাজিরায় দূরত্ব যাচাই (log/block) + অ্যাডমিন সেটিং ট্যাব
-   RPC: get_geo_config, student_mark_attendance_v4, admin_get_geo_settings, admin_set_geo_settings
-   v4 না থাকলে বা জিও বন্ধ থাকলে আগের v3 পথেই চলে */
+/* js/geo.js — জিও-লোকেশন: OFF হলে GPS সংগ্রহ/সংরক্ষণ নয়; ON হলে Allow/Block + Radius */
 
 let geoCfg = { enabled: false, mode: 'log', at: 0 };
 
@@ -9,8 +7,15 @@ async function getGeoConfig() {
   if (Date.now() - geoCfg.at < 15 * 1000) return geoCfg;
   try {
     const res = await Promise.race([db.rpc('get_geo_config'), new Promise(r => setTimeout(() => r({ error: 'timeout' }), 3000))]);
-    if (!res.error && res.data) geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
-  } catch (e) { /* শেষ জানা অবস্থা থাকবে */ }
+    if (!res.error && res.data) {
+      geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
+    } else {
+      geoCfg = { enabled: false, mode: geoCfg.mode, at: 0 };
+    }
+  } catch (e) {
+    // Settings যাচাই করা না গেলে GPS সংগ্রহ করব না (fail closed).
+    geoCfg = { enabled: false, mode: geoCfg.mode, at: 0 };
+  }
   return geoCfg;
 }
 
