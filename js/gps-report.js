@@ -61,7 +61,7 @@ async function loadGpsAttendanceReport(prefix, teacherMode) {
   if (syRaw && (!Number.isInteger(sessionYear) || sessionYear < 2000 || sessionYear > 2100)) return toastWarning('Invalid session year');
   if (result) result.innerHTML = '<p class="text-center py-4">⏳ Loading GPS records...</p>';
   try {
-    const args = { p_from: from, p_to: to, p_year: year, p_course_code: null, p_session_year: sessionYear, p_teacher_token: teacherMode ? currentTeacher?.token : null };
+    const args = { p_from: from, p_to: to, p_year: year, p_course_code: teacherMode ? ((document.getElementById('tarCourse')?.value || '').split('|')[0] || null) : null, p_session_year: sessionYear, p_teacher_token: teacherMode ? currentTeacher?.token : null };
     const response = await db.rpc('get_gps_attendance_report', args);
     if (response.error) throw response.error;
     currentGpsRows = (response.data || []).map(r => ({
