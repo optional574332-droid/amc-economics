@@ -5,7 +5,8 @@
 let geoCfg = { enabled: false, mode: 'log', at: 0 };
 
 async function getGeoConfig() {
-  if (Date.now() - geoCfg.at < 5 * 60 * 1000) return geoCfg;
+  if (!navigator.onLine) return { enabled: false, mode: geoCfg.mode, at: 0 };
+  if (Date.now() - geoCfg.at < 15 * 1000) return geoCfg;
   try {
     const res = await Promise.race([db.rpc('get_geo_config'), new Promise(r => setTimeout(() => r({ error: 'timeout' }), 3000))]);
     if (!res.error && res.data) geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
@@ -50,10 +51,10 @@ async function geoAdminRender() {
   const lbl = 'block text-sm font-semibold dark:text-white';
   el.innerHTML = `<div class="max-w-xl mx-auto space-y-4">
     <h3 class="text-xl font-bold dark:text-white">📍 Geo Location</h3>
-    <p class="text-xs text-gray-500 dark:text-gray-400">Checks that a student is near the college when marking attendance. <b>Log only</b> records the distance and never blocks anyone — use it for the first few days. <b>Block</b> rejects attendance outside the radius.</p>
+    <p class="text-xs text-gray-500 dark:text-gray-400">OFF থাকলে শিক্ষার্থীর GPS চাওয়া বা সংরক্ষণ করা হবে না; সাধারণভাবে হাজিরা নেওয়া যাবে। ON থাকলে নির্ধারিত Radius অনুযায়ী GPS রেকর্ড হবে। Allow mode-এ Radius-এর বাইরেও হাজিরা দেওয়া যাবে; Block mode-এ Radius-এর বাইরে বা GPS না পেলে হাজিরা বন্ধ হবে।</p>
     <div class="grid grid-cols-2 gap-3">
       <label class="${lbl}">Status<select id="geoEnabled" class="${inp}"><option value="0">OFF</option><option value="1">ON</option></select></label>
-      <label class="${lbl}">Mode<select id="geoMode" class="${inp}"><option value="log">Log only</option><option value="block">Block outside</option></select></label>
+      <label class="${lbl}">Mode<select id="geoMode" class="${inp}"><option value="log">Allow outside radius</option><option value="block">Block outside radius</option></select></label>
     </div>
     <div class="grid grid-cols-2 gap-3">
       <label class="${lbl}">Latitude<input id="geoLat" type="number" step="any" class="${inp}"></label>
@@ -71,7 +72,7 @@ async function geoAdminRender() {
   document.getElementById('geoMode').value = data.mode || 'log';
   document.getElementById('geoLat').value = data.lat ?? '';
   document.getElementById('geoLng').value = data.lng ?? '';
-  document.getElementById('geoRadius').value = data.radius_m ?? 200;
+  document.getElementById('geoRadius').value = data.radius_m ?? 100;
   document.getElementById('geoMaxAcc').value = data.max_accuracy_m ?? 150;
 }
 
@@ -94,11 +95,11 @@ async function geoSave() {
   const radius = parseInt(document.getElementById('geoRadius').value, 10);
   const maxAcc = parseInt(document.getElementById('geoMaxAcc').value, 10);
   if (enabled && mode === 'block') {
-    const c = await Swal.fire({ title: 'Switch to BLOCK mode?', text: 'Students outside the radius (or without location) will NOT be able to mark attendance.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, block' });
+    const c = await Swal.fire({ title: 'Switch to BLOCK mode?', text: 'Radius-এর বাইরে বা GPS location না পাওয়া গেলে শিক্ষার্থীর হাজিরা গ্রহণ করা হবে না।', icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, block' });
     if (!c.isConfirmed) return;
   }
   const { data, error } = await db.rpc('admin_set_geo_settings', { p_enabled: enabled, p_mode: mode, p_lat: lat, p_lng: lng, p_radius: radius, p_max_acc: maxAcc });
   if (error || !data || !data.ok) return toastError(data?.message || error?.message || 'Save failed');
   geoCfg.at = 0;
-  toastSuccess('Geo settings saved');
+  toastSuccess(enabled ? (mode === 'block' ? 'Geo ON: বাইরে থেকে হাজিরা বন্ধ' : 'Geo ON: বাইরে থেকেও হাজিরা চালু') : 'Geo OFF: GPS সংগ্রহ ও সংরক্ষণ বন্ধ');
 }
