@@ -4,12 +4,19 @@
 
 let geoCfg = { enabled: false, mode: 'log', at: 0 };
 
-async function getGeoConfig() {
-  if (Date.now() - geoCfg.at < 5 * 60 * 1000) return geoCfg;
+async function getGeoConfig(forceRefresh = false) {
+  if (!forceRefresh && Date.now() - geoCfg.at < 5 * 60 * 1000) return geoCfg;
   try {
     const res = await Promise.race([db.rpc('get_geo_config'), new Promise(r => setTimeout(() => r({ error: 'timeout' }), 3000))]);
-    if (!res.error && res.data) geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
-  } catch (e) { /* শেষ জানা অবস্থা থাকবে */ }
+    if (!res.error && res.data) {
+      geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
+    } else if (forceRefresh) {
+      // Fail closed: if the current server setting cannot be confirmed, do not request GPS.
+      return { enabled: false, mode: geoCfg.mode || 'log', at: Date.now() };
+    }
+  } catch (e) {
+    if (forceRefresh) return { enabled: false, mode: geoCfg.mode || 'log', at: Date.now() };
+  }
   return geoCfg;
 }
 
