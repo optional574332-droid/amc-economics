@@ -22,7 +22,7 @@ function gpsReportFormHtml(prefix, teacherMode) {
     '<label class="text-xs font-semibold dark:text-white">From<input id="' + prefix + 'From" type="date" value="' + today + '" class="w-full border-2 rounded-lg p-2 dark:bg-gray-600 dark:text-white"></label>' +
     '<label class="text-xs font-semibold dark:text-white">To<input id="' + prefix + 'To" type="date" value="' + today + '" class="w-full border-2 rounded-lg p-2 dark:bg-gray-600 dark:text-white"></label></div>' +
     '<div class="grid grid-cols-2 gap-2"><label class="text-xs font-semibold dark:text-white">Class/year<select id="' + prefix + 'Year" class="w-full border-2 rounded-lg p-2 dark:bg-gray-600 dark:text-white">' +
-    '<option value="">All classes</option><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option><option>Preliminary to Masters</option><option>Masters Final</option></select></label>' +
+    '<option value="">All classes</option><option value="1st">1st Year</option><option value="2nd">2nd Year</option><option value="3rd">3rd Year</option><option value="4th">4th Year</option><option value="Preliminary to Masters">Preliminary to Masters</option><option value="Masters Final">Masters Final</option></select></label>' +
     '<label class="text-xs font-semibold dark:text-white">Session year<input id="' + prefix + 'SY" type="number" min="2000" max="2100" placeholder="e.g. 2021" class="w-full border-2 rounded-lg p-2 dark:bg-gray-600 dark:text-white"></label></div>' +
     '<button onclick="loadGpsAttendanceReport(\'' + prefix + '\',' + (teacherMode ? 'true' : 'false') + ')" class="w-full bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold">🔍 Show GPS Report</button></div>' +
     '<div id="' + prefix + 'Result" class="mt-3"></div>';
