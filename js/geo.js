@@ -4,12 +4,19 @@
 
 let geoCfg = { enabled: false, mode: 'log', at: 0 };
 
-async function getGeoConfig() {
-  if (Date.now() - geoCfg.at < 5 * 60 * 1000) return geoCfg;
+async function getGeoConfig(forceRefresh = false) {
+  if (!forceRefresh && Date.now() - geoCfg.at < 5 * 60 * 1000) return geoCfg;
   try {
     const res = await Promise.race([db.rpc('get_geo_config'), new Promise(r => setTimeout(() => r({ error: 'timeout' }), 3000))]);
-    if (!res.error && res.data) geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
-  } catch (e) { /* শেষ জানা অবস্থা থাকবে */ }
+    if (!res.error && res.data) {
+      geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
+    } else if (forceRefresh) {
+      // Fail closed: if the current server setting cannot be confirmed, do not request GPS.
+      return { enabled: false, mode: geoCfg.mode || 'log', at: Date.now() };
+    }
+  } catch (e) {
+    if (forceRefresh) return { enabled: false, mode: geoCfg.mode || 'log', at: Date.now() };
+  }
   return geoCfg;
 }
 
@@ -50,10 +57,10 @@ async function geoAdminRender() {
   const lbl = 'block text-sm font-semibold dark:text-white';
   el.innerHTML = `<div class="max-w-xl mx-auto space-y-4">
     <h3 class="text-xl font-bold dark:text-white">📍 Geo Location</h3>
-    <p class="text-xs text-gray-500 dark:text-gray-400">Checks that a student is near the college when marking attendance. <b>Log only</b> records the distance and never blocks anyone — use it for the first few days. <b>Block</b> rejects attendance outside the radius.</p>
+    <p class="text-xs text-gray-500 dark:text-gray-400"><b>OFF:</b> attendance works normally; the student GPS is not requested or saved. <b>ON + Allow:</b> GPS is recorded, but attendance is accepted even outside the radius. <b>ON + Block:</b> attendance is rejected outside the radius or when GPS is unavailable.</p>
     <div class="grid grid-cols-2 gap-3">
       <label class="${lbl}">Status<select id="geoEnabled" class="${inp}"><option value="0">OFF</option><option value="1">ON</option></select></label>
-      <label class="${lbl}">Mode<select id="geoMode" class="${inp}"><option value="log">Log only</option><option value="block">Block outside</option></select></label>
+      <label class="${lbl}">Outside radius<select id="geoMode" class="${inp}"><option value="log">Allow attendance + record GPS</option><option value="block">Block attendance</option></select></label>
     </div>
     <div class="grid grid-cols-2 gap-3">
       <label class="${lbl}">Latitude<input id="geoLat" type="number" step="any" class="${inp}"></label>
@@ -62,7 +69,7 @@ async function geoAdminRender() {
     <button onclick="geoUseMyLocation()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">📍 Set from my current location</button>
     <p id="geoLocInfo" class="text-xs text-gray-500 dark:text-gray-400"></p>
     <div class="grid grid-cols-2 gap-3">
-      <label class="${lbl}">Radius (m)<input id="geoRadius" type="number" min="20" max="5000" class="${inp}"></label>
+      <label class="${lbl}">Radius (m)<input id="geoRadius" type="number" min="20" max="5000" value="100" class="${inp}"></label>
       <label class="${lbl}">Max GPS error (m)<input id="geoMaxAcc" type="number" min="20" max="1000" class="${inp}"></label>
     </div>
     <button onclick="geoSave()" class="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold btn-pop">💾 Save</button>
@@ -71,7 +78,7 @@ async function geoAdminRender() {
   document.getElementById('geoMode').value = data.mode || 'log';
   document.getElementById('geoLat').value = data.lat ?? '';
   document.getElementById('geoLng').value = data.lng ?? '';
-  document.getElementById('geoRadius').value = data.radius_m ?? 200;
+  document.getElementById('geoRadius').value = data.radius_m ?? 100;
   document.getElementById('geoMaxAcc').value = data.max_accuracy_m ?? 150;
 }
 
@@ -94,7 +101,7 @@ async function geoSave() {
   const radius = parseInt(document.getElementById('geoRadius').value, 10);
   const maxAcc = parseInt(document.getElementById('geoMaxAcc').value, 10);
   if (enabled && mode === 'block') {
-    const c = await Swal.fire({ title: 'Switch to BLOCK mode?', text: 'Students outside the radius (or without location) will NOT be able to mark attendance.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, block' });
+    const c = await Swal.fire({ title: 'Enable attendance blocking?', text: 'Students outside the selected radius (or without GPS location) will NOT be able to mark attendance.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, block' });
     if (!c.isConfirmed) return;
   }
   const { data, error } = await db.rpc('admin_set_geo_settings', { p_enabled: enabled, p_mode: mode, p_lat: lat, p_lng: lng, p_radius: radius, p_max_acc: maxAcc });
