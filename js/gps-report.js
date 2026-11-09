@@ -61,11 +61,14 @@ async function loadGpsAttendanceReport(prefix, teacherMode) {
   if (syRaw && (!Number.isInteger(sessionYear) || sessionYear < 2000 || sessionYear > 2100)) return toastWarning('Invalid session year');
   if (result) result.innerHTML = '<p class="text-center py-4">⏳ Loading GPS records...</p>';
   try {
-    const args = { p_token: teacherMode ? currentTeacher?.token : null, p_from: from, p_to: to, p_year: year, p_session_year: sessionYear, p_course_code: null };
-    const response = await db.rpc('gps_attendance_report', args);
+    const args = { p_from: from, p_to: to, p_year: year, p_course_code: null, p_session_year: sessionYear, p_teacher_token: teacherMode ? currentTeacher?.token : null };
+    const response = await db.rpc('get_gps_attendance_report', args);
     if (response.error) throw response.error;
-    if (!response.data?.ok) throw new Error(response.data?.message || 'Could not load GPS report');
-    currentGpsRows = response.data.rows || [];
+    currentGpsRows = (response.data || []).map(r => ({
+      ...r, date: r.attendance_date, year: r.class_year, roll: r.class_roll,
+      distance_m: r.geo_distance_m, accuracy_m: r.geo_accuracy_m,
+      has_coordinates: r.latitude != null && r.longitude != null
+    }));
     renderGpsAttendanceRows(result, currentGpsRows);
   } catch (e) {
     if (result) result.innerHTML = '<p class="text-red-600 text-sm p-3">❌ ' + gpsReportEscape(e.message) + '</p>';
