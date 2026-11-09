@@ -9,7 +9,25 @@ function showReportTab(tab) {
   const yr = (id, onchange) => classPickerHtml(id, { placeholder: 'Class', cls: inp, onchange });
   const box = 'bg-gray-50 dark:bg-gray-700 p-4 rounded-xl';
   const btn = (fn, label, c) => `<button onclick="${fn}" class="bg-${c}-600 text-white px-4 py-2 rounded-xl btn-pop text-sm">${label}</button>`;
-  if (tab === 'attendance') {
+  if (tab === 'gps') {
+    const today = (typeof getBangladeshNow === 'function' ? getBangladeshNow().dateStr : new Date().toISOString().slice(0,10));
+    el.innerHTML = `<div class="space-y-3">
+      <div class="${box}">
+        <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">শিক্ষার্থীর হাজিরার সময় পাওয়া GPS অবস্থান, কলেজ থেকে দূরত্ব ও Accuracy দেখুন। পুরোনো রেকর্ডে স্থানাঙ্ক না থাকলে তা এখানে GPS না পাওয়া হিসেবে দেখাবে।</p>
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <label class="text-xs dark:text-white">From<input id="gpsFrom" type="date" value="${today}" class="w-full ${inp}"></label>
+          <label class="text-xs dark:text-white">To<input id="gpsTo" type="date" value="${today}" class="w-full ${inp}"></label>
+        </div>
+        ${yr('gpsYear')}
+        <div class="flex gap-2 mt-3 flex-wrap">
+          <button onclick="loadGpsAttendanceReport()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl btn-pop">🔍 Search</button>
+          <button onclick="exportGpsAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop">📊 Excel</button>
+        </div>
+      </div>
+      <div id="gpsAttendanceReportArea"></div>
+    </div>`;
+    loadGpsAttendanceReport();
+  } else if (tab === 'attendance') {
     el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="arSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arAll" checked onchange="arToggleDates()"> All dates</label><input type="date" id="arFrom" disabled class="${inp}"><input type="date" id="arTo" disabled class="${inp}"></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button></div><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
     rsBind('arSessionYear', 'arYear');
     updateSortModeBtn();
@@ -543,4 +561,69 @@ async function exportIndividualPDF() {
     body: [['Attended / Held', ...courseCodes.map(c => `${d.att[c] || 0}/${d.held[c]}`)], ...dates.map(dt => [dt, ...courseCodes.map(c => indivCell(d, dt, c) || '-')])],
     didParseCell: (x) => { if (x.section === 'body' && x.row.index === 0) { x.cell.styles.fillColor = [229, 231, 235]; x.cell.styles.fontStyle = 'bold'; } }
   });
+}
+
+
+// GPS Attendance Tracking — coordinates are served only by the authorized database RPC.
+let currentGpsAttendanceRows = [];
+async function loadGpsAttendanceReport() {
+  const area = document.getElementById('gpsAttendanceReportArea');
+  if (!area) return;
+  const from = document.getElementById('gpsFrom')?.value;
+  const to = document.getElementById('gpsTo')?.value;
+  const year = document.getElementById('gpsYear')?.value || null;
+  if (!from || !to || from > to) { area.innerHTML = '<p class="text-red-500">সঠিক তারিখ নির্বাচন করুন।</p>'; return; }
+  area.innerHTML = '<p class="text-center py-5 text-gray-500">⏳ GPS report loading...</p>';
+  const { data, error } = await db.rpc('get_gps_attendance_report', {
+    p_from: from, p_to: to, p_year: year, p_course_code: null,
+    p_session_year: null, p_teacher_token: null
+  });
+  if (error) { area.innerHTML = `<p class="text-red-500 p-3">❌ ${escapeHtml(error.message)}</p>`; return; }
+  currentGpsAttendanceRows = data || [];
+  if (!currentGpsAttendanceRows.length) { area.innerHTML = '<p class="text-gray-500 text-center py-5">এই সময়ের কোনো হাজিরা পাওয়া যায়নি।</p>'; return; }
+  const located = currentGpsAttendanceRows.filter(r => r.latitude != null && r.longitude != null).length;
+  const inside = currentGpsAttendanceRows.filter(r => r.geo_status === 'inside').length;
+  const outside = currentGpsAttendanceRows.filter(r => r.geo_status === 'outside').length;
+  const missing = currentGpsAttendanceRows.length - located;
+  area.innerHTML = `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-center">
+      <div class="bg-slate-100 dark:bg-slate-700 rounded-xl p-3"><b class="text-2xl num-display">${currentGpsAttendanceRows.length}</b><p class="text-xs">মোট হাজিরা</p></div>
+      <div class="bg-emerald-50 dark:bg-emerald-900/30 rounded-xl p-3"><b class="text-2xl text-emerald-700 num-display">${located}</b><p class="text-xs">GPS পাওয়া গেছে</p></div>
+      <div class="bg-amber-50 dark:bg-amber-900/30 rounded-xl p-3"><b class="text-2xl text-amber-700 num-display">${outside}</b><p class="text-xs">কলেজের বাইরে</p></div>
+      <div class="bg-gray-100 dark:bg-gray-700 rounded-xl p-3"><b class="text-2xl num-display">${missing}</b><p class="text-xs">GPS নেই</p></div>
+    </div>
+    <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Inside radius: ${inside} · Outside radius: ${outside} · GPS unavailable/legacy/manual: ${missing}</p>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-xs border dark:border-gray-600">
+        <thead class="bg-gray-100 dark:bg-gray-700"><tr>
+          <th class="p-2 border">Date / Time</th><th class="p-2 border">Class / Course</th><th class="p-2 border">Roll / Reg</th><th class="p-2 border text-left">Student</th><th class="p-2 border">Distance</th><th class="p-2 border">Accuracy</th><th class="p-2 border">GPS Status</th><th class="p-2 border">Location</th>
+        </tr></thead><tbody>
+        ${currentGpsAttendanceRows.map(r => {
+          const has = r.latitude != null && r.longitude != null;
+          const map = has ? 'https://www.google.com/maps?q=' + encodeURIComponent(r.latitude + ',' + r.longitude) : '';
+          const label = r.geo_status === 'inside' ? 'Inside' : r.geo_status === 'outside' ? 'Outside' : r.geo_status === 'poor_accuracy' ? 'Poor accuracy' : r.geo_status === 'no_location' ? 'No location' : 'Not recorded';
+          const dt = r.marked_at ? new Date(r.marked_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '-';
+          return `<tr class="dark:text-white">
+            <td class="p-2 border whitespace-nowrap">${escapeHtml(r.attendance_date)}<br>${dt}</td>
+            <td class="p-2 border">${escapeHtml(r.class_year)}<br>${escapeHtml(r.course_code)}</td>
+            <td class="p-2 border text-center">${escapeHtml(r.class_roll || '-')}<br>${escapeHtml(r.reg_no || '-')}</td>
+            <td class="p-2 border">${escapeHtml(r.student_name || '-')}<br><span class="text-gray-500">${escapeHtml(r.teacher_name || '')}</span></td>
+            <td class="p-2 border text-center">${r.geo_distance_m == null ? '-' : Number(r.geo_distance_m) + ' m'}</td>
+            <td class="p-2 border text-center">${r.geo_accuracy_m == null ? '-' : '±' + Number(r.geo_accuracy_m) + ' m'}</td>
+            <td class="p-2 border text-center">${label}</td>
+            <td class="p-2 border text-center">${has ? `<a class="text-blue-600 underline font-semibold" target="_blank" rel="noopener" href="${map}">📍 Map</a><br><span class="text-[10px]">${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}</span>` : '-'}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>`;
+}
+function exportGpsAttendanceExcel() {
+  if (!currentGpsAttendanceRows.length) return toastWarning('Load GPS report first');
+  const rows = [['Date','Time','Class','Course','Roll','Registration','Student','Teacher','Status','GPS Status','Distance (m)','Accuracy (m)','Latitude','Longitude','Google Maps']];
+  currentGpsAttendanceRows.forEach(r => {
+    const has = r.latitude != null && r.longitude != null;
+    rows.push([r.attendance_date, r.marked_at ? new Date(r.marked_at).toLocaleTimeString('en-GB') : '', r.class_year, r.course_code, r.class_roll, r.reg_no, r.student_name, r.teacher_name, r.status, r.geo_status, r.geo_distance_m, r.geo_accuracy_m, r.latitude, r.longitude, has ? 'https://www.google.com/maps?q=' + r.latitude + ',' + r.longitude : '']);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'GPS Attendance');
+  XLSX.writeFile(wb, 'AMC_GPS_Attendance_Report.xlsx');
 }
