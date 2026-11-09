@@ -46,6 +46,7 @@ let currentAdminTab = '';
 async function showAdminTab(tab) {
   currentAdminTab = tab;
   const el = document.getElementById('adminContent');
+  if (tab === 'gpsReport') { if (typeof showGpsAdminReport === 'function') return showGpsAdminReport(); }
   if (tab === 'examSchedule') {
     if (typeof exsOpenTab === 'function') exsOpenTab(el);
     else el.innerHTML = '<div class="text-center py-8 text-red-500">Exam Schedule could not load. Please refresh the page.</div>';
