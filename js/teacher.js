@@ -136,6 +136,7 @@ async function showTeacherTab(tab) {
             <button onclick="loadTeacherAttendanceReport()" class="flex-1 bg-teal-600 text-white px-4 py-3 rounded-xl font-bold btn-pop">🔍</button>
             <button onclick="exportTeacherAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold btn-pop text-sm">📊</button>
             <button onclick="exportTeacherAttendancePDF()" class="bg-red-600 text-white px-4 py-3 rounded-xl font-bold btn-pop text-sm">📄</button>
+            <button onclick="showGpsTeacherReport()" class="w-full bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold btn-pop">🛰️ GPS Location Report</button>
           </div>
         </div>
         <div id="teacherAttendanceReportArea"></div>
