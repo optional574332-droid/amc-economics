@@ -24,6 +24,7 @@ declare
   v_acc int := null;
   d double precision;
   v_record_id uuid;
+  v_geo_enabled boolean := false;
 begin
   v_key := case when coalesce(p_device_id, '') = '' then null else 'dev:' || left(p_device_id, 100) end;
   if v_key is not null then
@@ -46,9 +47,10 @@ begin
   if not found then return jsonb_build_object('ok', false, 'message', 'Student not found in this class/session_year'); end if;
 
   select * into g from geo_settings where id = 1;
+  v_geo_enabled := found and coalesce(g.enabled, false);
 
   -- Only calculate GPS metadata when Geo is ON and a college location is configured.
-  if found and g.enabled and g.lat is not null and g.lng is not null then
+  if v_geo_enabled and g.lat is not null and g.lng is not null then
     if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then
       v_status := 'no_location';
     else
@@ -75,7 +77,7 @@ begin
   returning id into v_record_id;
 
   -- Crucial: do not persist coordinates when Geo is OFF (or settings are absent).
-  if found and g.enabled
+  if v_geo_enabled
      and p_lat is not null and p_lng is not null
      and p_lat between -90 and 90 and p_lng between -180 and 180 then
     insert into geo_attendance_locations(attendance_record_id, latitude, longitude, accuracy_m, captured_at)
