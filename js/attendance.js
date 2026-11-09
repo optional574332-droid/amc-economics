@@ -436,7 +436,10 @@ async function confirmAndSubmit() {
   const { student } = pendingConfirmation;
   if (!navigator.onLine) {
     let geoQ = null;
-    if (typeof geoCfg !== 'undefined' && geoCfg.enabled) geoQ = await getPositionOnce();
+    // Offline: use only the last known setting. The server rechecks the current setting
+    // before saving and discards coordinates if Geo has since been switched OFF.
+    const offlineGeoCfg = (typeof geoCfg !== 'undefined') ? geoCfg : { enabled: false };
+    if (offlineGeoCfg.enabled) geoQ = await getPositionOnce();
     queueAttendance(currentPinSession.pin, student.class_roll, student.id, geoQ);
     pendingConfirmation = null;
     showSuccessAndNext(student.name);
@@ -445,7 +448,8 @@ async function confirmAndSubmit() {
   showGlobalLoader();
   try {
     let geo = null;
-    const gcfg = (typeof getGeoConfig === 'function') ? await getGeoConfig() : { enabled: false };
+    // Refresh the server setting before asking the student device for GPS.
+    const gcfg = (typeof getGeoConfig === 'function') ? await getGeoConfig(true) : { enabled: false };
     if (gcfg.enabled) geo = await getPositionOnce();
     const { data, error } = student.id
       ? await (typeof markAttendanceGeo === 'function' ? markAttendanceGeo(currentPinSession.pin, student.id, deviceId, geo) : db.rpc('student_mark_attendance_v3', { p_pin: currentPinSession.pin, p_student_id: student.id, p_device_id: deviceId }))
