@@ -263,6 +263,7 @@ async function showAdminTab(tab) {
         <h3 class="text-lg font-bold dark:text-white">📊 Reports</h3>
         <div class="flex gap-2 flex-wrap text-xs">
           <button data-report-subtab="attendance" onclick="showReportTab('attendance')" class="admin-subtab active">📋 Attendance</button>
+          <button data-report-subtab="gps" onclick="showReportTab('gps')" class="admin-subtab">📍 GPS Tracking</button>
           <button data-report-subtab="exam" onclick="showReportTab('exam')" class="admin-subtab">📝 Marks</button>
           <button data-report-subtab="individual" onclick="showReportTab('individual')" class="admin-subtab">🎓 Individual</button>
           <button data-report-subtab="examwise" onclick="showReportTab('examwise')" class="admin-subtab">🏆 Exam Result</button>
