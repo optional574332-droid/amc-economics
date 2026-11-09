@@ -584,15 +584,17 @@ async function loadGpsAttendanceReport() {
   const located = currentGpsAttendanceRows.filter(r => r.latitude != null && r.longitude != null).length;
   const inside = currentGpsAttendanceRows.filter(r => r.geo_status === 'inside').length;
   const outside = currentGpsAttendanceRows.filter(r => r.geo_status === 'outside').length;
-  const missing = currentGpsAttendanceRows.length - located;
+  const noLocation = currentGpsAttendanceRows.filter(r => r.geo_status === 'no_location').length;
+  const unlogged = currentGpsAttendanceRows.filter(r => r.geo_status == null).length;
+  const coordinatesMissing = currentGpsAttendanceRows.length - located;
   area.innerHTML = `
     <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-center">
       <div class="bg-slate-100 dark:bg-slate-700 rounded-xl p-3"><b class="text-2xl num-display">${currentGpsAttendanceRows.length}</b><p class="text-xs">মোট হাজিরা</p></div>
       <div class="bg-emerald-50 dark:bg-emerald-900/30 rounded-xl p-3"><b class="text-2xl text-emerald-700 num-display">${located}</b><p class="text-xs">GPS পাওয়া গেছে</p></div>
       <div class="bg-amber-50 dark:bg-amber-900/30 rounded-xl p-3"><b class="text-2xl text-amber-700 num-display">${outside}</b><p class="text-xs">কলেজের বাইরে</p></div>
-      <div class="bg-gray-100 dark:bg-gray-700 rounded-xl p-3"><b class="text-2xl num-display">${missing}</b><p class="text-xs">GPS নেই</p></div>
+      <div class="bg-gray-100 dark:bg-gray-700 rounded-xl p-3"><b class="text-2xl num-display">${coordinatesMissing}</b><p class="text-xs">Map coordinates unavailable</p></div>
     </div>
-    <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Inside radius: ${inside} · Outside radius: ${outside} · GPS unavailable/legacy/manual: ${missing}</p>
+    <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Inside radius: ${inside} · Outside radius: ${outside} · No location captured: ${noLocation} · GPS status not logged: ${unlogged}</p>
     <div class="overflow-x-auto">
       <table class="min-w-full text-xs border dark:border-gray-600">
         <thead class="bg-gray-100 dark:bg-gray-700"><tr>
