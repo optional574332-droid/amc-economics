@@ -188,6 +188,10 @@ async function showTeacherTab(tab) {
               <button onclick="searchByDeviceId()" class="bg-orange-600 text-white px-4 py-2 rounded-xl font-bold btn-pop">🔍</button>
             </div>
           </div>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300">Date From<input id="trackDateFrom" type="date" class="mt-1 w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"></label>
+            <label class="block text-sm font-bold text-gray-700 dark:text-gray-300">Date To<input id="trackDateTo" type="date" class="mt-1 w-full border-2 rounded-xl p-2 dark:bg-gray-700 dark:text-white dark:border-gray-600"></label>
+          </div>
           <div>
             <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">🎓 Search by Student Roll</label>
             <div class="flex gap-2">
@@ -791,12 +795,31 @@ async function importMarksExcel() {
 // ============================================================
 // DEVICE TRACKING
 // ============================================================
+function getTrackingDateFilter() {
+  const from = document.getElementById('trackDateFrom')?.value || '';
+  const to = document.getElementById('trackDateTo')?.value || '';
+  if ((from && !to) || (!from && to)) {
+    toastWarning('Select both Date From and Date To, or leave both blank');
+    return null;
+  }
+  if (from && to && from > to) {
+    toastWarning('Date From cannot be later than Date To');
+    return null;
+  }
+  const nextDay = to ? new Date(Date.UTC(Number(to.slice(0,4)), Number(to.slice(5,7))-1, Number(to.slice(8,10))+1)).toISOString().slice(0,10) : '';
+  return { from, to, nextDay };
+}
+
 async function searchByDeviceId() {
   const deviceId = document.getElementById('trackDeviceInput').value.trim();
   if (!deviceId) return toastWarning('Enter Device ID');
+  const dateFilter = getTrackingDateFilter();
+  if (!dateFilter) return;
   showGlobalLoader();
   try {
-    const { data: records, error } = await db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).ilike('device_id', `${deviceId}%`).order('marked_at', { ascending: false }).limit(500);
+    let query = db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).ilike('device_id', `${deviceId}%`);
+    if (dateFilter.from) query = query.gte('marked_at', `${dateFilter.from}T00:00:00+06:00`).lt('marked_at', `${dateFilter.nextDay}T00:00:00+06:00`);
+    const { data: records, error } = await query.order('marked_at', { ascending: false }).limit(500);
     if (error) return toastError(error.message);
     if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No attendance found for this device</p></div>`; return; }
     const uniqueStudents = new Set(records.map(r => r.students?.class_roll)).size;
@@ -811,6 +834,8 @@ async function searchByDeviceId() {
 async function searchByStudentRoll() {
   const roll = banglaToEnglish(document.getElementById('trackRollInput').value.trim());
   if (!roll) return toastWarning('Enter roll');
+  const dateFilter = getTrackingDateFilter();
+  if (!dateFilter) return;
   showGlobalLoader();
   try {
     const { data: students, error: sErr } = await db.from('students').select('id, name, class_roll, reg_no, session, session_year, year').or(`class_roll.eq.${roll},reg_no.eq.${roll}`).order('session_year', { ascending: false });
@@ -827,7 +852,11 @@ async function searchByStudentRoll() {
 }
 
 async function loadStudentTracking(studentId, studentName) {
-  const { data: records, error: rErr } = await db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).eq('student_id', studentId).order('marked_at', { ascending: false }).limit(500);
+  const dateFilter = getTrackingDateFilter();
+  if (!dateFilter) return;
+  let query = db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).eq('student_id', studentId);
+  if (dateFilter.from) query = query.gte('marked_at', `${dateFilter.from}T00:00:00+06:00`).lt('marked_at', `${dateFilter.nextDay}T00:00:00+06:00`);
+  const { data: records, error: rErr } = await query.order('marked_at', { ascending: false }).limit(500);
   if (rErr) return toastError(rErr.message);
   if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center"><p class="text-sm text-blue-700 dark:text-blue-300">ℹ️ No attendance found for ${escapeHtml(studentName)}</p></div>`; return; }
   const uniqueDevices = new Set(records.map(r => r.device_id)).size;
