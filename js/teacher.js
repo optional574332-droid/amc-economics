@@ -78,7 +78,7 @@ async function showTeacherTab(tab) {
     tpInit('at', 'atCourseSelect', 'atSessionYear', dedupeCourses(myCourses));
   }
   else if (tab === 'liveReport') {
-    el.innerHTML = `<div class="space-y-4"><h3 class="text-lg font-bold dark:text-white">🔴 Live Attendance</h3><p class="text-xs text-gray-500 dark:text-gray-400">💡 Updates every 5 seconds</p><select id="liveSessionSelect" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"></select><div id="liveCount" class="text-center bg-red-50 dark:bg-red-900/30 rounded-2xl p-6"><p class="text-6xl font-bold text-red-600 pulse-live num-display">0</p><p class="text-gray-500 dark:text-gray-400">Present</p></div><div id="liveList" class="mt-4 space-y-1 max-h-96 overflow-y-auto"></div></div>`;
+    el.innerHTML = `<div class="space-y-4"><h3 class="text-lg font-bold dark:text-white">🔴 Live Attendance</h3><p class="text-xs text-gray-500 dark:text-gray-400">💡 Updates every 5 seconds</p><select id="liveSessionSelect" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"></select><div><label for="liveSortSelect" class="block text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">Sort by</label><select id="liveSortSelect" onchange="liveSortMode=this.value; if(document.getElementById('liveSessionSelect')?.value) subscribeLive(document.getElementById('liveSessionSelect').value)" class="w-full border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600"><option value="roll">Roll (low to high)</option><option value="reg">Registration (low to high)</option><option value="latest">Latest attendance first</option></select></div><div id="liveCount" class="text-center bg-red-50 dark:bg-red-900/30 rounded-2xl p-6"><p class="text-6xl font-bold text-red-600 pulse-live num-display">0</p><p class="text-gray-500 dark:text-gray-400">Present</p></div><div id="liveList" class="mt-4 space-y-1 max-h-96 overflow-y-auto"></div></div>`;
     loadLiveSessions();
   }
   else if (tab === 'manualEntry') {
@@ -438,16 +438,38 @@ async function loadLiveSessions() {
   if (data && data.length) { sel.onchange = () => subscribeLive(sel.value); subscribeLive(data[0].id); }
 }
 
+let liveSortMode = 'roll';
+
+function compareLiveStudentValues(a, b, field) {
+  const av = String(a?.students?.[field] ?? '').trim();
+  const bv = String(b?.students?.[field] ?? '').trim();
+  if (!av && !bv) return 0;
+  if (!av) return 1;
+  if (!bv) return -1;
+  return av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
+}
+
 function subscribeLive(sessionId) {
   if (liveChannel) { db.removeChannel(liveChannel); liveChannel = null; }
   if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
   const refresh = async () => {
-    const { data, error } = await db.from('attendance_records').select('marked_at, students(name, class_roll)').eq('session_id', sessionId);
+    const { data, error } = await db.from('attendance_records').select('marked_at, students(name, class_roll, reg_no)').eq('session_id', sessionId);
     const rows = error || !data ? [] : data;
     const el = document.getElementById('liveCount');
     if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600 num-display">${rows.length}</p><p class="text-gray-500 dark:text-gray-400">Present</p>`;
+    const sortSelect = document.getElementById('liveSortSelect');
+    const sortMode = sortSelect?.value || liveSortMode || 'roll';
+    liveSortMode = sortMode;
+    const sortedRows = [...rows].sort((a, b) => {
+      if (sortMode === 'latest') return new Date(b.marked_at) - new Date(a.marked_at);
+      const field = sortMode === 'reg' ? 'reg_no' : 'class_roll';
+      return compareLiveStudentValues(a, b, field) || compareLiveStudentValues(a, b, field === 'class_roll' ? 'reg_no' : 'class_roll');
+    });
     const el2 = document.getElementById('liveList');
-    if (el2) el2.innerHTML = rows.sort((a,b) => new Date(b.marked_at) - new Date(a.marked_at)).map(r => `<div class="bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded-lg flex justify-between"><span class="dark:text-white">✅ ${escapeHtml(r.students?.name)}</span><span class="text-xs text-gray-400 num-display">${new Date(r.marked_at).toLocaleTimeString('en-GB')}</span></div>`).join('');
+    if (el2) el2.innerHTML = sortedRows.map(r => {
+      const markedAt = r.marked_at ? new Date(r.marked_at) : null;
+      return `<div class="bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded-lg flex justify-between items-center gap-3"><div class="min-w-0"><div class="dark:text-white font-medium">✅ ${escapeHtml(r.students?.name || 'Unknown student')}</div><div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 num-display">Roll: ${escapeHtml(r.students?.class_roll || '-')} · Reg: ${escapeHtml(r.students?.reg_no || '-')}</div></div><span class="text-xs text-gray-400 num-display whitespace-nowrap">${markedAt ? markedAt.toLocaleTimeString('en-GB') : '-'}</span></div>`;
+    }).join('');
   };
   liveChannel = db.channel('live_' + sessionId).on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `session_id=eq.${sessionId}` }, refresh).subscribe();
   liveReportInterval = setInterval(refresh, 5000);
