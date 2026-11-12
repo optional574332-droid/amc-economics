@@ -431,6 +431,29 @@ function cancelConfirmation() {
   showAttendanceForm();
 }
 
+function showGeoAttendanceWarning(reason, serverMessage = '') {
+  const warnings = {
+    permission_denied: { title: 'Location permission is blocked', message: 'Please allow Location access for this website in your browser settings, then try again.', icon: '🔒' },
+    unsupported: { title: 'Location is not supported', message: 'This browser or device cannot provide location. Please use a browser with location support.', icon: '📍' },
+    timeout: { title: 'GPS location timed out', message: 'Your device could not detect GPS location in time. Turn on device Location/GPS, move near a window or outdoors, and retry.', icon: '🛰️' },
+    unavailable: { title: 'Unable to detect GPS location', message: 'Your device could not determine its current location. Turn on Location/GPS and retry.', icon: '🛰️' },
+    no_location: { title: 'Location is required', message: 'No GPS location was received. Please allow location access and try again.', icon: '📍' },
+    poor_accuracy: { title: 'GPS signal is weak', message: 'The detected location is not accurate enough. Move near a window or outdoors, wait for a stronger GPS signal, and retry.', icon: '📶' },
+    outside: { title: 'You are outside the allowed area', message: serverMessage || 'Attendance can only be marked within the college attendance area.', icon: '🚫' }
+  };
+  const warning = warnings[reason] || { title: 'Unable to verify location', message: serverMessage || 'Please check your device location settings and try again.', icon: '⚠️' };
+  const message = serverMessage && (reason === 'outside' || !warnings[reason]) ? serverMessage : warning.message;
+  document.getElementById('attendanceModal').classList.remove('hidden');
+  document.getElementById('modalContent').innerHTML = `
+    <div class="text-center fade-in">
+      <div class="text-6xl mb-4">${warning.icon}</div>
+      <h3 class="text-xl font-bold text-amber-600 dark:text-amber-400 mb-3">${escapeHtml(warning.title)}</h3>
+      <p class="text-gray-700 dark:text-gray-300 mb-6">${escapeHtml(message)}</p>
+      <button onclick="confirmAndSubmit()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">Try Again</button>
+      <button onclick="cancelConfirmation()" class="w-full mt-2 bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button>
+    </div>`;
+}
+
 async function confirmAndSubmit() {
   if (!pendingConfirmation) return;
   const { student } = pendingConfirmation;
@@ -450,7 +473,14 @@ async function confirmAndSubmit() {
     let geo = null;
     // Refresh the server setting before asking the student device for GPS.
     const gcfg = (typeof getGeoConfig === 'function') ? await getGeoConfig(true) : { enabled: false };
-    if (gcfg.enabled) geo = await getPositionOnce();
+    if (gcfg.enabled) {
+      const locationResult = await getPositionDetailed();
+      geo = locationResult.position;
+      if (!geo) {
+        showGeoAttendanceWarning(locationResult.error);
+        return;
+      }
+    }
     const { data, error } = student.id
       ? await (typeof markAttendanceGeo === 'function' ? markAttendanceGeo(currentPinSession.pin, student.id, deviceId, geo) : db.rpc('student_mark_attendance_v3', { p_pin: currentPinSession.pin, p_student_id: student.id, p_device_id: deviceId }))
       : await db.rpc('student_mark_attendance_v2', { p_pin: currentPinSession.pin, p_roll: student.class_roll, p_device_id: deviceId });
@@ -459,7 +489,11 @@ async function confirmAndSubmit() {
       return;
     }
     if (!data.ok) {
-      document.getElementById('modalContent').innerHTML = `<div class="text-center"><div class="text-6xl mb-3">⚠️</div><p class="text-amber-600 font-bold mb-4">${escapeHtml(data.message)}</p><button onclick="showAttendanceForm()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
+      if (data.geo_status) {
+        showGeoAttendanceWarning(data.geo_status, data.message);
+      } else {
+        document.getElementById('modalContent').innerHTML = `<div class="text-center"><div class="text-6xl mb-3">⚠️</div><p class="text-amber-600 font-bold mb-4">${escapeHtml(data.message)}</p><button onclick="showAttendanceForm()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
+      }
       return;
     }
     pendingConfirmation = null;
