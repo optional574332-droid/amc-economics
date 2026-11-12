@@ -20,14 +20,19 @@ async function getGeoConfig(forceRefresh = false) {
   return geoCfg;
 }
 
-function getPositionOnce(timeoutMs, maxAgeMs) {
+function getPositionDetailed(timeoutMs, maxAgeMs) {
   return new Promise(resolve => {
-    if (!navigator.geolocation) return resolve(null);
+    if (!navigator.geolocation) return resolve({ position: null, error: 'unsupported' });
     navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
-      () => resolve(null),
+      p => resolve({ position: { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }, error: null }),
+      e => resolve({ position: null, error: e && e.code === 1 ? 'permission_denied' : e && e.code === 3 ? 'timeout' : 'unavailable' }),
       { enableHighAccuracy: true, timeout: timeoutMs || 10000, maximumAge: maxAgeMs === undefined ? 15000 : maxAgeMs });
   });
+}
+
+async function getPositionOnce(timeoutMs, maxAgeMs) {
+  const result = await getPositionDetailed(timeoutMs, maxAgeMs);
+  return result.position;
 }
 
 async function markAttendanceGeo(pin, studentId, devId, geo) {
