@@ -201,6 +201,74 @@ $function$;
 
 -- Teacher tokens are validated inside the function. Keep the RPC callable to the
 -- same public/anonymous browser client roles used by the existing teacher workflow.
-REVOKE ALL ON FUNCTION public.t_bulk_attendance(text, uuid, uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.t_bulk_attendance(text, uuid, uuid[]) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.t_bulk_attendance(text, uuid, uuid[]) TO anon, authenticated;
+
+-- Create/reuse a non-PIN session for teacher-assisted attendance.
+-- It is deliberately inactive, so this workflow never exposes a new student PIN.
+CREATE OR REPLACE FUNCTION public.t_get_or_create_bulk_session(
+  p_token text,
+  p_year text,
+  p_course_code text,
+  p_date date,
+  p_session_year integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_tid uuid := public._teacher_id_from_token(p_token);
+  v_session_id uuid;
+  v_pin text;
+BEGIN
+  IF v_tid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Login expired, please login again');
+  END IF;
+
+  IF p_year IS NULL OR p_course_code IS NULL OR p_date IS NULL OR p_session_year IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Class, course, date and session year are required');
+  END IF;
+
+  IF NOT public.teacher_owns_course(v_tid, 'ALL', p_year, p_course_code) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'This course is not assigned to you');
+  END IF;
+
+  -- Serialize same-teacher/same-course/date creation to avoid duplicate sessions.
+  PERFORM pg_advisory_xact_lock(hashtext(
+    v_tid::text || '|' || p_year || '|' || p_course_code || '|' ||
+    p_date::text || '|' || p_session_year::text
+  ));
+
+  SELECT id INTO v_session_id
+  FROM public.attendance_sessions
+  WHERE teacher_id = v_tid
+    AND year = p_year
+    AND course_code = p_course_code
+    AND date = p_date
+    AND session_year = p_session_year
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF v_session_id IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', true, 'session_id', v_session_id, 'created', false);
+  END IF;
+
+  v_pin := lpad(floor(random() * 10000)::int::text, 4, '0');
+
+  INSERT INTO public.attendance_sessions
+    (teacher_id, session, year, session_year, course_code, date, pin,
+     is_active, expires_at, closed_at, closed_by)
+  VALUES
+    (v_tid, 'ALL', p_year, p_session_year, p_course_code, p_date, v_pin,
+     false, now(), now(), v_tid)
+  RETURNING id INTO v_session_id;
+
+  RETURN jsonb_build_object('ok', true, 'session_id', v_session_id, 'created', true);
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.t_get_or_create_bulk_session(text, text, text, date, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.t_get_or_create_bulk_session(text, text, text, date, integer) TO anon, authenticated;
 
