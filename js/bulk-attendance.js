@@ -121,7 +121,10 @@ function bulkAttendanceSourceLabel(record) {
   if (record.attendance_source === 'pin') return 'PIN';
   if (record.attendance_source === 'manual') return 'Manual';
   if (record.attendance_source === 'bulk') return 'Bulk';
-  return 'আগের রেকর্ড · উৎস অজানা';
+  // Legacy rows predate attendance_source; the existing PIN RPC stores no marked_by,
+  // while the teacher manual-entry RPC stores the teacher ID.
+  if (record.marked_by == null) return 'PIN';
+  return 'Manual';
 }
 
 function renderBulkAttendanceRows() {
