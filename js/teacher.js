@@ -101,6 +101,9 @@ async function showTeacherTab(tab) {
     setupManualSearch();
     tpInit('me', 'meCourse', 'meSY', dedupeCourses(myCourses));
   }
+  else if (tab === 'bulkAttendance') {
+    await renderTeacherBulkAttendance(el);
+  }
   else if (tab === 'markEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     await getCourseInfoMap();
@@ -431,11 +434,34 @@ async function closePin(sessionId) {
 }
 
 async function loadLiveSessions() {
-  const { data } = await mySess({ active: true });
   const sel = document.getElementById('liveSessionSelect');
+  if (!sel) return;
+  const today = getBangladeshNow().dateStr;
+  const [activeResult, todayResult] = await Promise.all([
+    mySess({ active: true }),
+    mySess({ from: today, to: today })
+  ]);
+  if (activeResult.error || todayResult.error) {
+    sel.innerHTML = '<option>Could not load sessions</option>';
+    return;
+  }
+  const byId = new Map();
+  [...(todayResult.data || []), ...(activeResult.data || [])].forEach(s => byId.set(s.id, s));
+  const data = [...byId.values()].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime() ||
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
   await getCourseInfoMap();
-  sel.innerHTML = data?.map(s => `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — PIN ${escapeHtml(s.pin)}</option>`).join('') || '<option>No sessions</option>';
-  if (data && data.length) { sel.onchange = () => subscribeLive(sel.value); subscribeLive(data[0].id); }
+  sel.innerHTML = data.map(s => {
+    const isLive = s.is_active && new Date(s.expires_at).getTime() > Date.now();
+    const isBulk = s.session === 'ALL';
+    const label = isBulk ? 'Bulk Attendance' : (isLive ? `Live — PIN ${escapeHtml(s.pin)}` : `Closed — PIN ${escapeHtml(s.pin)}`);
+    return `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — ${label}</option>`;
+  }).join('') || '<option>No sessions today</option>';
+  if (data.length) {
+    sel.onchange = () => subscribeLive(sel.value);
+    subscribeLive(data[0].id);
+  }
 }
 
 let liveSortMode = 'roll';
@@ -515,6 +541,29 @@ async function manualAttendance() {
 // TEACHER ATTENDANCE REPORT
 // ============================================================
 let currentTeacherAttendanceData = null;
+
+function teacherAttendanceSessionLabel(session, records) {
+  const sources = records || [];
+  const hasBulk = sources.some(r => r.attendance_source === 'bulk');
+  const hasPin = sources.some(r => r.attendance_source === 'pin' || (!r.attendance_source && r.marked_by == null));
+  const hasManual = sources.some(r => r.attendance_source === 'manual');
+  const hasLegacyTeacher = sources.some(r => !r.attendance_source && r.marked_by != null);
+
+  if (hasBulk && (hasPin || hasManual || hasLegacyTeacher)) return 'Mixed attendance';
+  if (hasBulk) return 'Bulk Attendance';
+  if (hasManual) return 'Manual Attendance';
+  if (hasPin) return 'PIN Attendance';
+  if (hasLegacyTeacher) return 'Teacher entry (legacy)';
+  return 'Attendance';
+}
+
+function teacherAttendanceRecordSource(record) {
+  if (record.attendance_source === 'bulk') return 'Bulk';
+  if (record.attendance_source === 'manual') return 'Manual';
+  if (record.attendance_source === 'pin') return 'PIN';
+  return 'Legacy / unknown';
+}
+
 async function loadTeacherAttendanceReport() {
   const cv = document.getElementById('tarCourse').value;
   const fromDate = document.getElementById('tarFrom').value;
@@ -528,14 +577,50 @@ async function loadTeacherAttendanceReport() {
   const fsy = document.getElementById('tarSY').value;
   let q = mySess({ from: fromDate, to: toDate, session_year: fsy, year: fy, course: fc });
   
-  const { data: sessions, error: sErr } = await q;
+  const { data: ownSessions, error: sErr } = await q;
   if (sErr) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(sErr.message)}</p>`; return; }
-  if (!sessions || !sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
+
+  // Include shared sessions containing Bulk rows submitted by this teacher.
+  // Before the new migration is applied, the RPC may not exist; keep the
+  // existing report working and continue with teacher-owned sessions only.
+  let sessions = ownSessions || [];
+  if (currentTeacher?.token) {
+    const { data: bulkSessions, error: bulkSessionError } = await db.rpc('t_my_bulk_sessions', {
+      p_token: currentTeacher.token,
+      p_from: fromDate,
+      p_to: toDate,
+      p_session_year: fsy ? parseInt(fsy, 10) : null,
+      p_year: fy || null,
+      p_course_code: fc || null
+    });
+    if (!bulkSessionError && Array.isArray(bulkSessions)) {
+      const seen = new Set(sessions.map(s => s.id));
+      bulkSessions.forEach(s => { if (!seen.has(s.id)) { sessions.push(s); seen.add(s.id); } });
+    }
+  }
+
+  if (!sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
   const sIds = sessions.map(s => s.id);
-  const { data: records } = await db.from('attendance_records').select('id, session_id, student_id, status, marked_at, device_id, students(name, class_roll, reg_no)').in('session_id', sIds);
+  let recordResult = await db.from('attendance_records')
+    .select('id, session_id, student_id, status, marked_at, device_id, marked_by, attendance_source, students(name, class_roll, reg_no)')
+    .in('session_id', sIds);
+  if (recordResult.error && /attendance_source|column .* does not exist|schema cache/i.test(recordResult.error.message || '')) {
+    recordResult = await db.from('attendance_records')
+      .select('id, session_id, student_id, status, marked_at, device_id, marked_by, students(name, class_roll, reg_no)')
+      .in('session_id', sIds);
+  }
+  if (recordResult.error) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(recordResult.error.message)}</p>`; return; }
   const byS = {};
   sessions.forEach(s => { byS[s.id] = { session: s, records: [] }; });
-  (records || []).forEach(r => { if (byS[r.session_id]) byS[r.session_id].records.push(r); });
+  (recordResult.data || []).forEach(r => {
+    const group = byS[r.session_id];
+    if (!group) return;
+    // For a shared session owned by another teacher, show only this teacher's
+    // own Bulk rows; do not expose the other teacher's PIN/manual roster here.
+    if (group.session.teacher_id !== currentTeacher.id &&
+        !(r.marked_by === currentTeacher.id && r.attendance_source === 'bulk')) return;
+    group.records.push(r);
+  });
   const rows = Object.values(byS).filter(x => x.records.length > 0).map(({ session, records }) => ({ session, records, present: records.filter(r => r.status === 'present').length, absent: records.filter(r => r.status === 'absent').length, late: records.filter(r => r.status === 'late').length, excused: records.filter(r => r.status === 'excused').length }));
   if (!rows.length) { currentTeacherAttendanceData = null; area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes with attendance in this period</p>'; return; }
   currentTeacherAttendanceData = { fromDate, toDate, rows, courseLabel: cv || 'All courses' };
@@ -561,7 +646,7 @@ function renderTeacherAttendanceReport() {
     <div class="space-y-3">
       ${rows.map(({ session: s, records }) => `
         <details class="bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl" open>
-          <summary class="cursor-pointer p-3 font-bold dark:text-white">📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · PIN <span class="num-display">${escapeHtml(s.pin)}</span></summary>
+          <summary class="cursor-pointer p-3 font-bold dark:text-white">📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · ${escapeHtml(teacherAttendanceSessionLabel(s, records))}</summary>
           <div class="p-3 pt-0">
             ${records.length === 0 ? '<p class="text-gray-400 text-sm">No attendance recorded</p>' : `
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">💡 Click status to change</p>
@@ -595,11 +680,11 @@ async function changeAttendanceStatus(recordId, currentStatus) {
 async function exportTeacherAttendanceExcel() {
   if (!currentTeacherAttendanceData) return toastWarning('Load report first');
   const { fromDate, toDate, rows } = currentTeacherAttendanceData;
-  const data = [['Date', 'Course', 'PIN', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']];
+  const data = [['Date', 'Course', 'Session type / PIN', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']];
   rows.forEach(({ session, records }) => {
     sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', reg_no: r.students?.reg_no || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
-      data.push([session.date, courseLabel(session.course_code), session.pin, r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
+      data.push([session.date, courseLabel(session.course_code), teacherAttendanceRecordSource(r), r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
     });
   });
   const ws = XLSX.utils.aoa_to_sheet(data);
@@ -614,13 +699,13 @@ async function exportTeacherAttendancePDF() {
   rows.forEach(({ session, records }) => {
     sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
-      body.push([session.date, courseLabel(session.course_code), r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
+      body.push([session.date, courseLabel(session.course_code), teacherAttendanceRecordSource(r), r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
     });
   });
   if (!body.length) return toastWarning('No attendance to export');
   await savePdfA4({ file: `TeacherReport_${fromDate}_to_${toDate}.pdf`, title: 'Teacher Attendance Report', headFill: [20, 184, 166], repeatCols: [0, 1],
     lines: [`Teacher: ${currentTeacher?.name || ''}`, `Period: ${fromDate} to ${toDate}`],
-    head: [['Date', 'Course', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']], body });
+    head: [['Date', 'Course', 'Session type', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']], body });
 }
 
 // ============================================================
