@@ -123,12 +123,14 @@ function renderBulkAttendanceRows() {
   const area = document.getElementById('bulkAttendanceArea');
   if (!area || !bulkAttendanceContext) return;
 
-  const query = banglaToEnglish((document.getElementById('baSearch')?.value || '').trim()).toLowerCase();
+  const searchInput = document.getElementById('baSearch');
+  const searchFocused = document.activeElement === searchInput;
+  const searchCursor = searchFocused && searchInput ? searchInput.selectionStart : null;
+  const query = banglaToEnglish((searchInput?.value || '').trim()).toLowerCase();
   const sortMode = document.getElementById('baSort')?.value || getSortMode();
-  const sorted = sortStudents(bulkAttendanceRoster);
-  if (sortMode === 'reg') {
-    sorted.sort((a, b) => _cmpReg(a.reg_no, b.reg_no) || _cmpRoll(a.class_roll, b.class_roll));
-  }
+  const sorted = [...bulkAttendanceRoster].sort((a, b) => sortMode === 'reg'
+    ? (_cmpReg(a.reg_no, b.reg_no) || _cmpRoll(a.class_roll, b.class_roll))
+    : (_cmpRoll(a.class_roll, b.class_roll) || _cmpReg(a.reg_no, b.reg_no)));
 
   const filtered = sorted.filter(s => {
     if (!query) return true;
@@ -178,6 +180,14 @@ function renderBulkAttendanceRows() {
       <button onclick="submitBulkAttendance()" ${selectedCount ? '' : 'disabled'} class="w-full bg-emerald-700 text-white px-5 py-3 rounded-xl font-bold btn-pop disabled:opacity-50 disabled:cursor-not-allowed">✅ Submit Attendance (${selectedCount})</button>
       <p class="text-xs text-gray-500 dark:text-gray-400 text-center">Eligible students: ${eligibleCount} · Existing records are protected from changes.</p>
     </div>`;
+
+  if (searchFocused) {
+    const nextSearch = document.getElementById('baSearch');
+    if (nextSearch) {
+      nextSearch.focus();
+      if (searchCursor !== null) nextSearch.setSelectionRange(searchCursor, searchCursor);
+    }
+  }
 }
 
 function toggleBulkStudent(studentId, checked) {
