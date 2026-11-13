@@ -101,6 +101,9 @@ async function showTeacherTab(tab) {
     setupManualSearch();
     tpInit('me', 'meCourse', 'meSY', dedupeCourses(myCourses));
   }
+  else if (tab === 'bulkAttendance') {
+    await renderTeacherBulkAttendance(el);
+  }
   else if (tab === 'markEntry') {
     const { data: myCourses } = await db.from('teacher_courses').select('*').eq('teacher_id', currentTeacher.id);
     await getCourseInfoMap();
