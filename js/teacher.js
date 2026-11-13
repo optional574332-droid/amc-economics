@@ -554,14 +554,50 @@ async function loadTeacherAttendanceReport() {
   const fsy = document.getElementById('tarSY').value;
   let q = mySess({ from: fromDate, to: toDate, session_year: fsy, year: fy, course: fc });
   
-  const { data: sessions, error: sErr } = await q;
+  const { data: ownSessions, error: sErr } = await q;
   if (sErr) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(sErr.message)}</p>`; return; }
-  if (!sessions || !sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
+
+  // Include shared sessions containing Bulk rows submitted by this teacher.
+  // Before the new migration is applied, the RPC may not exist; keep the
+  // existing report working and continue with teacher-owned sessions only.
+  let sessions = ownSessions || [];
+  if (currentTeacher?.token) {
+    const { data: bulkSessions, error: bulkSessionError } = await db.rpc('t_my_bulk_sessions', {
+      p_token: currentTeacher.token,
+      p_from: fromDate,
+      p_to: toDate,
+      p_session_year: fsy ? parseInt(fsy, 10) : null,
+      p_year: fy || null,
+      p_course_code: fc || null
+    });
+    if (!bulkSessionError && Array.isArray(bulkSessions)) {
+      const seen = new Set(sessions.map(s => s.id));
+      bulkSessions.forEach(s => { if (!seen.has(s.id)) { sessions.push(s); seen.add(s.id); } });
+    }
+  }
+
+  if (!sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
   const sIds = sessions.map(s => s.id);
-  const { data: records } = await db.from('attendance_records').select('id, session_id, student_id, status, marked_at, device_id, students(name, class_roll, reg_no)').in('session_id', sIds);
+  let recordResult = await db.from('attendance_records')
+    .select('id, session_id, student_id, status, marked_at, device_id, marked_by, attendance_source, students(name, class_roll, reg_no)')
+    .in('session_id', sIds);
+  if (recordResult.error && /attendance_source|column .* does not exist|schema cache/i.test(recordResult.error.message || '')) {
+    recordResult = await db.from('attendance_records')
+      .select('id, session_id, student_id, status, marked_at, device_id, marked_by, students(name, class_roll, reg_no)')
+      .in('session_id', sIds);
+  }
+  if (recordResult.error) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(recordResult.error.message)}</p>`; return; }
   const byS = {};
   sessions.forEach(s => { byS[s.id] = { session: s, records: [] }; });
-  (records || []).forEach(r => { if (byS[r.session_id]) byS[r.session_id].records.push(r); });
+  (recordResult.data || []).forEach(r => {
+    const group = byS[r.session_id];
+    if (!group) return;
+    // For a shared session owned by another teacher, show only this teacher's
+    // own Bulk rows; do not expose the other teacher's PIN/manual roster here.
+    if (group.session.teacher_id !== currentTeacher.id &&
+        !(r.marked_by === currentTeacher.id && r.attendance_source === 'bulk')) return;
+    group.records.push(r);
+  });
   const rows = Object.values(byS).filter(x => x.records.length > 0).map(({ session, records }) => ({ session, records, present: records.filter(r => r.status === 'present').length, absent: records.filter(r => r.status === 'absent').length, late: records.filter(r => r.status === 'late').length, excused: records.filter(r => r.status === 'excused').length }));
   if (!rows.length) { currentTeacherAttendanceData = null; area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes with attendance in this period</p>'; return; }
   currentTeacherAttendanceData = { fromDate, toDate, rows, courseLabel: cv || 'All courses' };
