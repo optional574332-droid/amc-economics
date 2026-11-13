@@ -454,7 +454,9 @@ async function loadLiveSessions() {
   await getCourseInfoMap();
   sel.innerHTML = data.map(s => {
     const isLive = s.is_active && new Date(s.expires_at).getTime() > Date.now();
-    return `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — ${isLive ? 'Live' : 'Closed / Bulk'} — PIN ${escapeHtml(s.pin)}</option>`;
+    const isBulk = s.session === 'ALL';
+    const label = isBulk ? 'Bulk Attendance' : (isLive ? `Live — PIN ${escapeHtml(s.pin)}` : `Closed — PIN ${escapeHtml(s.pin)}`);
+    return `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — ${label}</option>`;
   }).join('') || '<option>No sessions today</option>';
   if (data.length) {
     sel.onchange = () => subscribeLive(sel.value);
