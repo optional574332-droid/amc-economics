@@ -18,8 +18,8 @@ BEGIN
       ADD CONSTRAINT attendance_records_source_check
       CHECK (attendance_source IS NULL OR attendance_source IN ('pin', 'manual', 'bulk'));
   END IF;
-END
-$$;
+END;
+$;
 
 COMMENT ON COLUMN public.attendance_records.attendance_source IS
   'How this attendance record was first/last recorded: pin, manual, bulk; NULL means legacy/unknown.';
@@ -108,7 +108,7 @@ BEGIN
     attendance_source = 'manual';
 
   RETURN jsonb_build_object('ok', true);
-END
+END;
 $function$;
 
 -- New INSERT-ONLY bulk RPC. Existing rows are never updated by this function.
@@ -196,7 +196,7 @@ BEGIN
     'skipped_existing', v_skipped,
     'requested', v_requested
   );
-END
+END;
 $function$;
 
 -- Teacher tokens are validated inside the function. Keep the RPC callable to the
@@ -266,7 +266,7 @@ BEGIN
   RETURNING id INTO v_session_id;
 
   RETURN jsonb_build_object('ok', true, 'session_id', v_session_id, 'created', true);
-END
+END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.t_get_or_create_bulk_session(text, text, text, date, integer) FROM PUBLIC, anon, authenticated;
