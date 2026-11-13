@@ -488,7 +488,10 @@ async function confirmAndSubmit() {
       document.getElementById('modalContent').innerHTML = `<div class="text-center"><p class="text-red-500 font-bold mb-3">Student verification is incomplete</p><p class="text-gray-600 dark:text-gray-300 mb-4">Please reload the page and try again. No attendance has been submitted.</p><button onclick="showAttendanceForm()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
       return;
     }
-    if (typeof markAttendanceGeo !== 'function') throw new Error('Secure attendance service is unavailable. Please reload and try again.');
+    if (typeof markAttendanceGeo !== 'function') {
+      showModal('⚠️', 'Secure attendance service unavailable', 'Please reload the page and try again. No attendance has been submitted.', 'amber');
+      return;
+    }
     const { data, error } = await markAttendanceGeo(currentPinSession.pin, student.id, deviceId, geo);
     if (error) {
       document.getElementById('modalContent').innerHTML = `<div class="text-center"><div class="text-6xl mb-3">❌</div><p class="text-red-500 font-bold">Network error</p><button onclick="showAttendanceForm()" class="w-full mt-4 bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
