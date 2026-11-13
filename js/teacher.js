@@ -541,6 +541,29 @@ async function manualAttendance() {
 // TEACHER ATTENDANCE REPORT
 // ============================================================
 let currentTeacherAttendanceData = null;
+
+function teacherAttendanceSessionLabel(session, records) {
+  const sources = records || [];
+  const hasBulk = sources.some(r => r.attendance_source === 'bulk');
+  const hasPin = sources.some(r => r.attendance_source === 'pin' || (!r.attendance_source && r.marked_by == null));
+  const hasManual = sources.some(r => r.attendance_source === 'manual');
+  const hasLegacyTeacher = sources.some(r => !r.attendance_source && r.marked_by != null);
+
+  if (hasBulk && (hasPin || hasManual || hasLegacyTeacher)) return 'Mixed attendance';
+  if (hasBulk) return 'Bulk Attendance';
+  if (hasManual) return 'Manual Attendance';
+  if (hasPin) return 'PIN Attendance';
+  if (hasLegacyTeacher) return 'Teacher entry (legacy)';
+  return 'Attendance';
+}
+
+function teacherAttendanceRecordSource(record) {
+  if (record.attendance_source === 'bulk') return 'Bulk';
+  if (record.attendance_source === 'manual') return 'Manual';
+  if (record.attendance_source === 'pin') return 'PIN';
+  return 'Legacy / unknown';
+}
+
 async function loadTeacherAttendanceReport() {
   const cv = document.getElementById('tarCourse').value;
   const fromDate = document.getElementById('tarFrom').value;
@@ -623,7 +646,7 @@ function renderTeacherAttendanceReport() {
     <div class="space-y-3">
       ${rows.map(({ session: s, records }) => `
         <details class="bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl" open>
-          <summary class="cursor-pointer p-3 font-bold dark:text-white">📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · ${s.session === 'ALL' ? 'Bulk Attendance' : `PIN <span class="num-display">${escapeHtml(s.pin)}</span>`}</summary>
+          <summary class="cursor-pointer p-3 font-bold dark:text-white">📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · ${escapeHtml(teacherAttendanceSessionLabel(s, records))}</summary>
           <div class="p-3 pt-0">
             ${records.length === 0 ? '<p class="text-gray-400 text-sm">No attendance recorded</p>' : `
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">💡 Click status to change</p>
@@ -661,7 +684,7 @@ async function exportTeacherAttendanceExcel() {
   rows.forEach(({ session, records }) => {
     sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', reg_no: r.students?.reg_no || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
-      data.push([session.date, courseLabel(session.course_code), session.session === 'ALL' ? 'Bulk Attendance' : session.pin, r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
+      data.push([session.date, courseLabel(session.course_code), teacherAttendanceRecordSource(r), r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
     });
   });
   const ws = XLSX.utils.aoa_to_sheet(data);
@@ -676,7 +699,7 @@ async function exportTeacherAttendancePDF() {
   rows.forEach(({ session, records }) => {
     sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
-      body.push([session.date, courseLabel(session.course_code), session.session === 'ALL' ? 'Bulk Attendance' : 'PIN', r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
+      body.push([session.date, courseLabel(session.course_code), teacherAttendanceRecordSource(r), r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
     });
   });
   if (!body.length) return toastWarning('No attendance to export');
