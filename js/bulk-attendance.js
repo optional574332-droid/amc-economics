@@ -83,25 +83,36 @@ async function loadBulkAttendanceList() {
       return;
     }
 
-    const { data: session, error: sessionError } = await mySessOne({
-      year, course: courseCode, date, session_year: sessionYear
-    });
+    // Read every session for this exact class/course/date so PIN, Manual and
+    // Bulk records are all locked, including sessions opened by another assigned teacher.
+    const { data: sessions, error: sessionError } = await db.from('attendance_sessions')
+      .select('id, teacher_id, created_at')
+      .eq('year', year)
+      .eq('course_code', courseCode)
+      .eq('date', date)
+      .eq('session_year', sessionYear)
+      .order('created_at', { ascending: false });
     if (sessionError) throw sessionError;
 
+    const sessionIds = (sessions || []).map(s => s.id);
     let records = [];
-    if (session?.id) {
+    if (sessionIds.length) {
       const result = await db.from('attendance_records')
         .select('student_id, attendance_source, marked_by, status')
-        .eq('session_id', session.id);
+        .in('session_id', sessionIds);
       if (result.error) throw result.error;
       records = result.data || [];
     }
+
+    // Reuse an existing session when possible, preventing a second class-held
+    // denominator entry for the same course/date. Prefer this teacher's session.
+    const submitSession = (sessions || []).find(s => s.teacher_id === currentTeacher.id) || (sessions || [])[0] || null;
 
     bulkAttendanceRoster = sortStudents(students);
     bulkAttendanceExisting = Object.fromEntries(records.map(r => [r.student_id, r]));
     bulkAttendanceSelected = new Set();
     bulkAttendanceContext = {
-      year, courseCode, date, sessionYear, sessionId: session?.id || null
+      year, courseCode, date, sessionYear, sessionId: submitSession?.id || null
     };
 
     renderBulkAttendanceRows();
