@@ -640,13 +640,13 @@ async function exportTeacherAttendancePDF() {
   rows.forEach(({ session, records }) => {
     sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
-      body.push([session.date, courseLabel(session.course_code), r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
+      body.push([session.date, courseLabel(session.course_code), session.session === 'ALL' ? 'Bulk Attendance' : 'PIN', r.students?.class_roll || '-', r.students?.reg_no || '-', r.students?.name || '-', r.status, dt ? dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-', shortDevice(r.device_id)]);
     });
   });
   if (!body.length) return toastWarning('No attendance to export');
   await savePdfA4({ file: `TeacherReport_${fromDate}_to_${toDate}.pdf`, title: 'Teacher Attendance Report', headFill: [20, 184, 166], repeatCols: [0, 1],
     lines: [`Teacher: ${currentTeacher?.name || ''}`, `Period: ${fromDate} to ${toDate}`],
-    head: [['Date', 'Course', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']], body });
+    head: [['Date', 'Course', 'Session type', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']], body });
 }
 
 // ============================================================
