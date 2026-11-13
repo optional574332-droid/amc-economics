@@ -199,6 +199,53 @@ BEGIN
 END;
 $function$;
 
+-- Preserve source accuracy for the pre-existing bulk-mark-all-present RPC.
+-- Its original insert behavior and return contract remain unchanged.
+CREATE OR REPLACE FUNCTION public.bulk_mark_all_present(
+  p_session_id uuid,
+  p_teacher_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions', 'pg_temp'
+AS $function$
+DECLARE
+  v_s public.attendance_sessions%rowtype;
+  v_count integer;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.teachers WHERE id = p_teacher_id) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Teacher not found');
+  END IF;
+
+  SELECT * INTO v_s
+  FROM public.attendance_sessions
+  WHERE id = p_session_id;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Session not found');
+  END IF;
+
+  INSERT INTO public.attendance_records
+    (session_id, student_id, status, marked_by, attendance_source)
+  SELECT
+    p_session_id, st.id, 'present', p_teacher_id, 'bulk'
+  FROM public.students st
+  WHERE st.year = v_s.year
+    AND st.session_year = v_s.session_year
+    AND st.status = 'active'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.attendance_records ar
+      WHERE ar.session_id = p_session_id
+        AND ar.student_id = st.id
+    );
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN jsonb_build_object('ok', true, 'added', v_count);
+END;
+$function$;
+
 -- Teacher tokens are validated inside the function. Keep the RPC callable to the
 -- same public/anonymous browser client roles used by the existing teacher workflow.
 REVOKE ALL ON FUNCTION public.t_bulk_attendance(text, uuid, uuid[]) FROM PUBLIC, anon, authenticated;
