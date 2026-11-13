@@ -587,7 +587,7 @@ function renderTeacherAttendanceReport() {
     <div class="space-y-3">
       ${rows.map(({ session: s, records }) => `
         <details class="bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 rounded-xl" open>
-          <summary class="cursor-pointer p-3 font-bold dark:text-white">📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · PIN <span class="num-display">${escapeHtml(s.pin)}</span></summary>
+          <summary class="cursor-pointer p-3 font-bold dark:text-white">📅 <span class="num-display">${escapeHtml(s.date)}</span> · 📚 <span class="num-display">${escapeHtml(courseLabel(s.course_code))}</span> · ${s.session === 'ALL' ? 'Bulk Attendance' : `PIN <span class="num-display">${escapeHtml(s.pin)}</span>`}</summary>
           <div class="p-3 pt-0">
             ${records.length === 0 ? '<p class="text-gray-400 text-sm">No attendance recorded</p>' : `
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">💡 Click status to change</p>
@@ -621,11 +621,11 @@ async function changeAttendanceStatus(recordId, currentStatus) {
 async function exportTeacherAttendanceExcel() {
   if (!currentTeacherAttendanceData) return toastWarning('Load report first');
   const { fromDate, toDate, rows } = currentTeacherAttendanceData;
-  const data = [['Date', 'Course', 'PIN', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']];
+  const data = [['Date', 'Course', 'Session type / PIN', 'Roll', 'Reg', 'Name', 'Status', 'Time', 'Device']];
   rows.forEach(({ session, records }) => {
     sortStudents(records.map(r => ({ class_roll: r.students?.class_roll || '', reg_no: r.students?.reg_no || '', ...r }))).forEach(r => {
       const dt = r.marked_at ? new Date(r.marked_at) : null;
-      data.push([session.date, courseLabel(session.course_code), session.pin, r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
+      data.push([session.date, courseLabel(session.course_code), session.session === 'ALL' ? 'Bulk Attendance' : session.pin, r.students?.class_roll || '', r.students?.reg_no || '', r.students?.name || '', r.status, dt ? dt.toLocaleTimeString('en-GB') : '', r.device_id || '']);
     });
   });
   const ws = XLSX.utils.aoa_to_sheet(data);
