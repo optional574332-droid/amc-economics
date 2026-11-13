@@ -19,7 +19,7 @@ BEGIN
       CHECK (attendance_source IS NULL OR attendance_source IN ('pin', 'manual', 'bulk'));
   END IF;
 END;
-$;
+$$;
 
 COMMENT ON COLUMN public.attendance_records.attendance_source IS
   'How this attendance record was first/last recorded: pin, manual, bulk; NULL means legacy/unknown.';
