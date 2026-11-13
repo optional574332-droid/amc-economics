@@ -61,6 +61,11 @@ async function loadBulkAttendanceList() {
   const [courseCode, year] = courseValue.split('|');
   if (!courseCode || !year) return toastWarning('Please select a valid course');
 
+  bulkAttendanceRoster = [];
+  bulkAttendanceExisting = {};
+  bulkAttendanceSelected = new Set();
+  bulkAttendanceContext = null;
+
   showGlobalLoader();
   area.innerHTML = '<p class="text-center py-5 text-gray-500">Loading student list…</p>';
 
