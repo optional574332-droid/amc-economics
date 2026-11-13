@@ -35,6 +35,14 @@ The objective is to remove public direct-table read access to sensitive student 
 - `js/gps-report.js` calls `get_gps_attendance_report`; this RPC already has explicit admin/teacher validation and must be reviewed, not blindly revoked.
 - `js/geo.js` uses `student_mark_attendance_v4`; preserve the current validated attendance path and do not add a legacy fallback.
 
+## Additional function-level review (read-only)
+
+- `student_mark_attendance_v4` validates an active attendance PIN and that the supplied student UUID belongs to the active class/session year. It does not establish the student's identity using a login credential. Therefore it must not be reused as an authorization mechanism for student profile/history reads.
+- `get_held_sessions` is a `SECURITY DEFINER` function and returns held-session IDs, course codes, and dates for a class/session year without a student or teacher credential. It does not return student names or attendance rows, but its output should be treated as class-level schedule metadata and bounded/validated.
+- `t_manual_attendance` and `t_bulk_attendance` validate the teacher token and verify session/course ownership before writing. Preserve these checks.
+- `admin_promote_students` and `bulk_update_students` are `SECURITY DEFINER` functions with internal `is_admin()` checks. Their execute grants still need a complete ACL review; do not revoke or alter them without testing the Admin panel.
+- `get_gps_attendance_report` validates either Admin status or teacher token/course ownership. The database function currently accepts a maximum 93-day interval, while the frontend limits selection to 31 days. The database-side limit is authoritative and should be reconciled separately; do not assume the UI limit protects direct RPC calls.
+
 ## Implementation sequence
 
 1. Capture current schemas, function definitions, grants, policies, and frontend call contracts. Use read-only SQL only.
@@ -57,4 +65,4 @@ The objective is to remove public direct-table read access to sensitive student 
 - Branch created from `main`.
 - Read-only database inspection confirms broad public SELECT policies on `students` and `attendance_records`, plus anonymous column grants.
 - Frontend direct-read dependencies mapped for the primary student, teacher, admin, reports, and GPS flows.
-- No application code, database schema, production data, or deployment has been changed by this plan commit.
+- A documentation-only plan has been committed to this branch (no application behavior changed).\n- Function-level review has identified the authentication boundary that must be designed before student history can be exposed safely.\n- No application code, database schema, production data, or deployment has been changed.
