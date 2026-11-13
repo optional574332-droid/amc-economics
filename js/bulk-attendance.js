@@ -185,13 +185,13 @@ function renderBulkAttendanceRows() {
           const checked = existing || bulkAttendanceSelected.has(s.id);
           const source = existing ? bulkAttendanceSourceLabel(existing) : '';
           return `
-            <label class="flex items-center gap-3 p-3 ${existing ? 'bg-gray-100 dark:bg-gray-800 opacity-70 cursor-not-allowed' : 'bg-white dark:bg-slate-700 cursor-pointer hover:bg-sky-50 dark:hover:bg-slate-600 transition-colors'}">
+            <label class="flex items-center gap-3 p-3 ${existing ? 'bg-rose-50 dark:bg-rose-950/40 border-l-4 border-rose-300 dark:border-rose-700 opacity-80 cursor-not-allowed' : (bulkAttendanceSelected.has(s.id) ? 'bg-emerald-100 dark:bg-emerald-900/50 border-l-4 border-emerald-500 cursor-pointer' : 'bg-emerald-50 dark:bg-emerald-950/25 border-l-4 border-emerald-200 dark:border-emerald-800 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors')}">
               <input type="checkbox" ${checked ? 'checked' : ''} ${existing ? 'disabled' : ''} onchange="toggleBulkStudent('${attrEsc(s.id)}', this.checked)" class="w-5 h-5 accent-teal-600 shrink-0">
               <span class="min-w-0 flex-1">
                 <span class="block font-semibold text-sm dark:text-white"><span class="num-display">${escapeHtml(s.class_roll || '-')}</span> — ${escapeHtml(s.name || '')}${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</span>
                 <span class="block text-xs text-gray-500 dark:text-gray-300">Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span></span>
               </span>
-              ${existing ? `<span class="text-[11px] font-semibold text-amber-700 dark:text-amber-300 text-right">${escapeHtml(source)}<br>Already marked</span>` : ''}
+              ${existing ? `<span class="text-[11px] font-semibold text-rose-700 dark:text-rose-300 text-right">${escapeHtml(source)}<br>Already marked</span>` : ''}
             </label>`;
         }).join('')}
       </div>
