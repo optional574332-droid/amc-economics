@@ -142,7 +142,7 @@ function renderBulkAttendanceRows() {
     return [s.name, s.class_roll, s.reg_no].some(v => String(v || '').toLowerCase().includes(query));
   });
 
-  const lockedCount = Object.keys(bulkAttendanceExisting).length;
+  const lockedCount = bulkAttendanceRoster.filter(s => !!bulkAttendanceExisting[s.id]).length;
   const selectedCount = bulkAttendanceSelected.size;
   const eligibleCount = Math.max(0, bulkAttendanceRoster.length - lockedCount);
 
