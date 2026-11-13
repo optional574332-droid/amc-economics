@@ -53,3 +53,18 @@ Status: design only. No SQL migration is applied and no frontend behavior is cha
 - No production DDL, policy/grant changes, data updates, or deletions.
 - No modification to existing attendance records, GPS behavior, teacher tokens, or admin workflows.
 - No disabling of any currently used RPC.
+
+## Additional production inspection (read-only, 2026-11-13)
+
+- All 497 current student rows returned by the status check are `status = 'active'` and `is_archived = false`. This is a current snapshot, not a permanent invariant; the RPC must still check both conditions at login and token use.
+- The `private` schema does not currently exist. The migration must create it explicitly and keep token storage there, with RLS enabled and no API-role grants.
+- `extensions.digest(bytea,text)` and `extensions.gen_random_bytes(integer)` are present. Token generation can use 32 random bytes and SHA-256 hashing with schema-qualified functions.
+- Existing `public.login_attempts`, `public._lock_remaining(text)`, and `public._register_failure(text,integer,interval,interval)` provide a reusable lockout mechanism. `teacher_login` currently uses a 5-failure / 15-minute window / 5-minute lock. Student login should use a separate key namespace (for example, a keyed digest of normalized session + roll) and the same helpers only after verifying their current ACLs and behavior. Never put registration numbers in the key or logs.
+- `login_attempts` has RLS enabled and no policies; its table grants are limited to postgres/service_role in the inspected grant view. Keep it server-side.
+- The current held-session denominator is exactly the set of sessions for the same year and session_year having at least one attendance row with status present or late. The secure dashboard RPC must preserve this definition; it must not change attendance calculation rules.
+
+## Implementation gate — do not bypass
+
+The live Supabase project inspected so far is Production. The repository branch is isolated, but it is not a separate database. No migration or RPC can be meaningfully end-to-end tested against a disposable database without provisioning a Supabase development branch or another test project. Do not apply this migration to Production as a substitute for testing.
+
+Before implementation, provision an isolated Supabase development database (and confirm any usage/cost implications), then create the migration through the Supabase CLI workflow. Test the RPCs and frontend against that isolated database before preparing any Production rollout. The student dashboard must also retain its current exam schedule, routines, notices, and course-label dependencies.
