@@ -41,7 +41,7 @@ Status: design only. No SQL migration is applied and no frontend behavior is cha
 - Never use the client-supplied `currentStudent.id` as proof of identity.
 
 ## Rollout / verification gates
-1. Confirm PostgreSQL crypto extension schema and availability, existing rate-limit helpers, and all `get_held_sessions` semantics.
+1. PostgreSQL `pgcrypto` is installed in the `extensions` schema. Use schema-qualified `extensions.gen_random_bytes(...)` / `extensions.digest(...)` (after confirming exact function signatures) rather than relying on an implicit search path. The current `get_held_sessions(text, integer)` is SECURITY DEFINER and counts sessions with at least one present/late row; preserve that exact denominator behavior but call it only inside the student-scoped dashboard RPC. Confirm existing rate-limit helpers before implementing login throttling.
 2. Add the new token table and RPCs in a migration on the feature branch only.
 3. Add frontend integration behind a compatibility switch so the current flow remains available until the RPC exists in the test database.
 4. Test valid login, wrong session, wrong roll, missing/wrong registration, inactive student, expired token, logout/revocation, and two students attempting to use each other's tokens.
