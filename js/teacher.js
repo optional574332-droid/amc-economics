@@ -434,11 +434,32 @@ async function closePin(sessionId) {
 }
 
 async function loadLiveSessions() {
-  const { data } = await mySess({ active: true });
   const sel = document.getElementById('liveSessionSelect');
+  if (!sel) return;
+  const today = getBangladeshNow().dateStr;
+  const [activeResult, todayResult] = await Promise.all([
+    mySess({ active: true }),
+    mySess({ from: today, to: today })
+  ]);
+  if (activeResult.error || todayResult.error) {
+    sel.innerHTML = '<option>Could not load sessions</option>';
+    return;
+  }
+  const byId = new Map();
+  [...(todayResult.data || []), ...(activeResult.data || [])].forEach(s => byId.set(s.id, s));
+  const data = [...byId.values()].sort((a, b) =>
+    new Date(b.date).getTime() - new Date(a.date).getTime() ||
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
   await getCourseInfoMap();
-  sel.innerHTML = data?.map(s => `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — PIN ${escapeHtml(s.pin)}</option>`).join('') || '<option>No sessions</option>';
-  if (data && data.length) { sel.onchange = () => subscribeLive(sel.value); subscribeLive(data[0].id); }
+  sel.innerHTML = data.map(s => {
+    const isLive = s.is_active && new Date(s.expires_at).getTime() > Date.now();
+    return `<option value="${s.id}">${escapeHtml(courseLabel(s.course_code))} — ${escapeHtml(s.date)} — ${isLive ? 'Live' : 'Closed / Bulk'} — PIN ${escapeHtml(s.pin)}</option>`;
+  }).join('') || '<option>No sessions today</option>';
+  if (data.length) {
+    sel.onchange = () => subscribeLive(sel.value);
+    subscribeLive(data[0].id);
+  }
 }
 
 let liveSortMode = 'roll';
