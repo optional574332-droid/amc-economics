@@ -93,6 +93,13 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'message', 'This session is not yours');
   END IF;
 
+  -- Serialize Bulk submissions for the same class/course/date. This prevents
+  -- two concurrent Bulk requests from creating duplicate rows in separate sessions.
+  PERFORM pg_advisory_xact_lock(hashtext(
+    v_s.year || '|' || v_s.course_code || '|' || v_s.date::text || '|' ||
+    v_s.session_year::text
+  ));
+
   SELECT count(DISTINCT student_id)
   INTO v_requested
   FROM unnest(p_student_ids) AS x(student_id);
@@ -122,6 +129,17 @@ BEGIN
     SELECT DISTINCT student_id
     FROM unnest(p_student_ids) AS x(student_id)
   ) requested
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.attendance_sessions other_session
+    JOIN public.attendance_records existing_record
+      ON existing_record.session_id = other_session.id
+    WHERE other_session.year = v_s.year
+      AND other_session.course_code = v_s.course_code
+      AND other_session.date = v_s.date
+      AND other_session.session_year = v_s.session_year
+      AND existing_record.student_id = requested.student_id
+  )
   ON CONFLICT (session_id, student_id) DO NOTHING;
 
   GET DIAGNOSTICS v_inserted = ROW_COUNT;
