@@ -458,9 +458,12 @@ async function confirmAndSubmit() {
   if (!pendingConfirmation) return;
   const { student } = pendingConfirmation;
   if (!navigator.onLine) {
+    if (!student.id) {
+      document.getElementById('modalContent').innerHTML = `<div class="text-center"><p class="text-red-500 font-bold mb-3">Student verification is incomplete</p><p class="text-gray-600 dark:text-gray-300 mb-4">Please connect to the internet, reload the page and try again. No attendance has been submitted.</p><button onclick="showAttendanceForm()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
+      return;
+    }
     let geoQ = null;
-    // Offline: use only the last known setting. The server rechecks the current setting
-    // before saving and discards coordinates if Geo has since been switched OFF.
+    // Offline submissions are queued with the student UUID and synced only through v4.
     const offlineGeoCfg = (typeof geoCfg !== 'undefined') ? geoCfg : { enabled: false };
     if (offlineGeoCfg.enabled) geoQ = await getPositionOnce();
     queueAttendance(currentPinSession.pin, student.class_roll, student.id, geoQ);
@@ -481,9 +484,15 @@ async function confirmAndSubmit() {
         return;
       }
     }
-    const { data, error } = student.id
-      ? await (typeof markAttendanceGeo === 'function' ? markAttendanceGeo(currentPinSession.pin, student.id, deviceId, geo) : db.rpc('student_mark_attendance_v3', { p_pin: currentPinSession.pin, p_student_id: student.id, p_device_id: deviceId }))
-      : await db.rpc('student_mark_attendance_v2', { p_pin: currentPinSession.pin, p_roll: student.class_roll, p_device_id: deviceId });
+    if (!student.id) {
+      document.getElementById('modalContent').innerHTML = `<div class="text-center"><p class="text-red-500 font-bold mb-3">Student verification is incomplete</p><p class="text-gray-600 dark:text-gray-300 mb-4">Please reload the page and try again. No attendance has been submitted.</p><button onclick="showAttendanceForm()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
+      return;
+    }
+    if (typeof markAttendanceGeo !== 'function') {
+      showModal('⚠️', 'Secure attendance service unavailable', 'Please reload the page and try again. No attendance has been submitted.', 'amber');
+      return;
+    }
+    const { data, error } = await markAttendanceGeo(currentPinSession.pin, student.id, deviceId, geo);
     if (error) {
       document.getElementById('modalContent').innerHTML = `<div class="text-center"><div class="text-6xl mb-3">❌</div><p class="text-red-500 font-bold">Network error</p><button onclick="showAttendanceForm()" class="w-full mt-4 bg-gray-800 text-white py-3 rounded-xl font-bold">Back</button></div>`;
       return;

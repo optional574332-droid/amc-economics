@@ -263,7 +263,12 @@ async function syncOfflineQueue() {
     let synced = 0;
     for (const item of q) {
       try {
-        const { data, error } = item.studentId ? await (typeof markAttendanceGeo === 'function' ? markAttendanceGeo(item.pin, item.studentId, item.deviceId, item.geo) : db.rpc('student_mark_attendance_v3', { p_pin: item.pin, p_student_id: item.studentId, p_device_id: item.deviceId })) : await db.rpc('student_mark_attendance_v2', { p_pin: item.pin, p_roll: item.roll, p_device_id: item.deviceId });
+        // Keep legacy queue entries untouched for manual review; never sync via v2/v3.
+        if (!item.studentId || typeof markAttendanceGeo !== 'function') {
+          remaining.push(item);
+          continue;
+        }
+        const { data, error } = await markAttendanceGeo(item.pin, item.studentId, item.deviceId, item.geo);
         if (error || !data?.ok) { remaining.push(item); } else { synced++; }
       } catch (e) { remaining.push(item); }
     }

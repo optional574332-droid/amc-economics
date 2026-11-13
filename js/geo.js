@@ -1,6 +1,6 @@
 /* js/geo.js — জিও-লোকেশন: ছাত্র হাজিরায় দূরত্ব যাচাই (log/block) + অ্যাডমিন সেটিং ট্যাব
    RPC: get_geo_config, student_mark_attendance_v4, admin_get_geo_settings, admin_set_geo_settings
-   v4 না থাকলে বা জিও বন্ধ থাকলে আগের v3 পথেই চলে */
+   Student attendance সবসময় v4 RPC দিয়ে জমা হয়; fallback নেই */
 
 let geoCfg = { enabled: false, mode: 'log', at: 0 };
 
@@ -37,11 +37,8 @@ async function getPositionOnce(timeoutMs, maxAgeMs) {
 
 async function markAttendanceGeo(pin, studentId, devId, geo) {
   const args = { p_pin: pin, p_student_id: studentId, p_device_id: devId, p_lat: geo ? geo.lat : null, p_lng: geo ? geo.lng : null, p_accuracy: geo ? geo.acc : null };
-  let res = await db.rpc('student_mark_attendance_v4', args);
-  if (res.error && (res.error.code === 'PGRST202' || /could not find the function/i.test(res.error.message || ''))) {
-    res = await db.rpc('student_mark_attendance_v3', { p_pin: pin, p_student_id: studentId, p_device_id: devId });
-  }
-  return res;
+  // Never downgrade to legacy RPCs: they do not enforce GPS validation.
+  return db.rpc('student_mark_attendance_v4', args);
 }
 
 // ---------------- Admin: Geo ট্যাব ----------------
