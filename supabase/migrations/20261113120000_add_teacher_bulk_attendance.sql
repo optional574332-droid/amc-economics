@@ -190,16 +190,17 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'message', 'This course is not assigned to you');
   END IF;
 
-  -- Serialize same-teacher/same-course/date creation to avoid duplicate sessions.
+  -- Serialize class/course/date creation across all assigned teachers.
+  -- A single existing session is reused so the Admin held-class denominator
+  -- does not count separate teacher sessions as multiple classes.
   PERFORM pg_advisory_xact_lock(hashtext(
-    v_tid::text || '|' || p_year || '|' || p_course_code || '|' ||
-    p_date::text || '|' || p_session_year::text
+    p_year || '|' || p_course_code || '|' || p_date::text || '|' ||
+    p_session_year::text
   ));
 
   SELECT id INTO v_session_id
   FROM public.attendance_sessions
-  WHERE teacher_id = v_tid
-    AND year = p_year
+  WHERE year = p_year
     AND course_code = p_course_code
     AND date = p_date
     AND session_year = p_session_year
@@ -226,4 +227,46 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.t_get_or_create_bulk_session(text, text, text, date, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.t_get_or_create_bulk_session(text, text, text, date, integer) TO anon, authenticated;
+
+-- Let a teacher see sessions containing Bulk rows they personally submitted,
+-- even when the shared class session was originally opened by another teacher.
+CREATE OR REPLACE FUNCTION public.t_my_bulk_sessions(
+  p_token text,
+  p_from date DEFAULT NULL,
+  p_to date DEFAULT NULL,
+  p_session_year integer DEFAULT NULL,
+  p_year text DEFAULT NULL,
+  p_course_code text DEFAULT NULL
+)
+RETURNS SETOF public.attendance_sessions
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_tid uuid := public._teacher_id_from_token(p_token);
+BEGIN
+  IF v_tid IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+    SELECT DISTINCT s.*
+    FROM public.attendance_sessions s
+    JOIN public.attendance_records r ON r.session_id = s.id
+    WHERE r.marked_by = v_tid
+      AND r.attendance_source = 'bulk'
+      AND (p_from IS NULL OR s.date >= p_from)
+      AND (p_to IS NULL OR s.date <= p_to)
+      AND (p_session_year IS NULL OR s.session_year = p_session_year)
+      AND (p_year IS NULL OR s.year = p_year)
+      AND (p_course_code IS NULL OR s.course_code = p_course_code)
+    ORDER BY s.date DESC, s.created_at DESC;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.t_my_bulk_sessions(text, date, date, integer, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.t_my_bulk_sessions(text, date, date, integer, text, text) TO anon, authenticated;
+
 
