@@ -104,9 +104,9 @@ async function loadBulkAttendanceList() {
       records = result.data || [];
     }
 
-    // Reuse an existing session when possible, preventing a second class-held
-    // denominator entry for the same course/date. Prefer this teacher's session.
-    const submitSession = (sessions || []).find(s => s.teacher_id === currentTeacher.id) || null;
+    // Reuse the latest existing class/course/date session, regardless of
+    // which assigned teacher opened it. This keeps one held-class session.
+    const submitSession = (sessions || [])[0] || null;
 
     bulkAttendanceRoster = sortStudents(students);
     bulkAttendanceExisting = Object.fromEntries(records.map(r => [r.student_id, r]));
