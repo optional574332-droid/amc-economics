@@ -28,16 +28,16 @@ async function renderTeacherBulkAttendance(el) {
     : new Date().toISOString().slice(0, 10);
 
   el.innerHTML = `
-    <div class="space-y-4">
+    <div class="space-y-4 rounded-2xl bg-gradient-to-br from-sky-50 via-white to-teal-50 dark:from-slate-900 dark:via-slate-800 dark:to-teal-950 p-3 sm:p-4">
       <div>
-        <h3 class="text-lg font-bold dark:text-white">☑️ Bulk Attendance</h3>
+        <div class="flex items-center gap-3"><span class="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-800 to-teal-600 text-white text-xl shadow-md">☑</span><div><h3 class="text-lg font-extrabold text-slate-800 dark:text-white">Bulk Attendance</h3><p class="text-xs font-medium text-teal-700 dark:text-teal-300">Teacher-assisted attendance</p></div></div>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Select students who do not already have an attendance record for this class, course and date.</p>
       </div>
-      <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl space-y-3">
+      <div class="bg-white/90 dark:bg-slate-800/90 border border-sky-100 dark:border-slate-600 p-4 rounded-2xl shadow-sm space-y-3">
         ${teacherPickerHtml('ba', 'baCourse', 'baSY')}
         <label class="block text-sm font-bold dark:text-gray-200">Class date</label>
         <input type="date" id="baDate" value="${attrEsc(today)}" class="w-full border-2 rounded-xl p-3 dark:bg-gray-600 dark:text-white dark:border-gray-500">
-        <button onclick="loadBulkAttendanceList()" class="w-full bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold btn-pop">📋 Load Student List</button>
+        <button onclick="loadBulkAttendanceList()" class="w-full bg-gradient-to-r from-blue-800 to-teal-600 hover:from-blue-900 hover:to-teal-700 text-white px-5 py-3 rounded-xl font-bold shadow-md btn-pop">📋 Load Student List</button>
       </div>
       <div id="bulkAttendanceArea"></div>
     </div>`;
@@ -163,9 +163,9 @@ function renderBulkAttendanceRows() {
   area.innerHTML = `
     <div class="space-y-3">
       <div class="grid grid-cols-3 gap-2 text-center">
-        <div class="rounded-xl bg-slate-100 dark:bg-slate-700 p-3"><p class="text-xl font-bold num-display dark:text-white">${bulkAttendanceRoster.length}</p><p class="text-xs text-gray-500 dark:text-gray-300">Students</p></div>
-        <div class="rounded-xl bg-amber-50 dark:bg-amber-900/30 p-3"><p class="text-xl font-bold num-display text-amber-700 dark:text-amber-300">${lockedCount}</p><p class="text-xs text-amber-700 dark:text-amber-300">Already marked</p></div>
-        <div class="rounded-xl bg-emerald-50 dark:bg-emerald-900/30 p-3"><p class="text-xl font-bold num-display text-emerald-700 dark:text-emerald-300">${selectedCount}</p><p class="text-xs text-emerald-700 dark:text-emerald-300">Selected</p></div>
+        <div class="rounded-xl bg-gradient-to-br from-sky-100 to-blue-100 dark:from-slate-700 dark:to-slate-600 border border-sky-200 dark:border-slate-600 p-3 shadow-sm"><p class="text-xl font-bold num-display dark:text-white">${bulkAttendanceRoster.length}</p><p class="text-xs text-gray-500 dark:text-gray-300">Students</p></div>
+        <div class="rounded-xl bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-900/40 dark:to-orange-900/30 border border-amber-200 dark:border-amber-800 p-3 shadow-sm"><p class="text-xl font-bold num-display text-amber-700 dark:text-amber-300">${lockedCount}</p><p class="text-xs text-amber-700 dark:text-amber-300">Already marked</p></div>
+        <div class="rounded-xl bg-gradient-to-br from-emerald-50 to-teal-100 dark:from-emerald-900/40 dark:to-teal-900/30 border border-emerald-200 dark:border-emerald-800 p-3 shadow-sm"><p class="text-xl font-bold num-display text-emerald-700 dark:text-emerald-300">${selectedCount}</p><p class="text-xs text-emerald-700 dark:text-emerald-300">Selected</p></div>
       </div>
       <div class="flex flex-col sm:flex-row gap-2">
         <input id="baSearch" value="${attrEsc(query)}" oninput="renderBulkAttendanceRows()" placeholder="Search name / roll / registration" class="min-w-0 flex-1 border-2 rounded-xl p-3 dark:bg-gray-700 dark:text-white dark:border-gray-600">
@@ -175,8 +175,8 @@ function renderBulkAttendanceRows() {
         </select>
       </div>
       <div class="flex gap-2 flex-wrap">
-        <button onclick="selectAllBulkEligible()" class="bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-200 px-3 py-2 rounded-lg text-sm font-semibold">Select all eligible</button>
-        <button onclick="clearBulkSelection()" class="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-2 rounded-lg text-sm font-semibold">Clear selection</button>
+        <button onclick="selectAllBulkEligible()" class="bg-gradient-to-r from-sky-100 to-cyan-100 dark:from-sky-900/50 dark:to-cyan-900/40 text-sky-800 dark:text-sky-200 border border-sky-200 dark:border-sky-700 px-3 py-2 rounded-lg text-sm font-semibold">Select all eligible</button>
+        <button onclick="clearBulkSelection()" class="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 px-3 py-2 rounded-lg text-sm font-semibold">Clear selection</button>
       </div>
       <div class="text-xs text-gray-500 dark:text-gray-400">আগে হাজিরা দেওয়া শিক্ষার্থীর চেকবক্স লক থাকবে। এখানে শুধু নতুন Present রেকর্ড যোগ হবে; পুরোনো রেকর্ড পরিবর্তন হবে না।</div>
       <div class="border dark:border-gray-600 rounded-xl overflow-hidden divide-y dark:divide-gray-600">
@@ -185,8 +185,8 @@ function renderBulkAttendanceRows() {
           const checked = existing || bulkAttendanceSelected.has(s.id);
           const source = existing ? bulkAttendanceSourceLabel(existing) : '';
           return `
-            <label class="flex items-center gap-3 p-3 ${existing ? 'bg-gray-100 dark:bg-gray-800 opacity-70 cursor-not-allowed' : 'bg-white dark:bg-gray-700 cursor-pointer'}">
-              <input type="checkbox" ${checked ? 'checked' : ''} ${existing ? 'disabled' : ''} onchange="toggleBulkStudent('${attrEsc(s.id)}', this.checked)" class="w-5 h-5 accent-indigo-600 shrink-0">
+            <label class="flex items-center gap-3 p-3 ${existing ? 'bg-gray-100 dark:bg-gray-800 opacity-70 cursor-not-allowed' : 'bg-white dark:bg-slate-700 cursor-pointer hover:bg-sky-50 dark:hover:bg-slate-600 transition-colors'}">
+              <input type="checkbox" ${checked ? 'checked' : ''} ${existing ? 'disabled' : ''} onchange="toggleBulkStudent('${attrEsc(s.id)}', this.checked)" class="w-5 h-5 accent-teal-600 shrink-0">
               <span class="min-w-0 flex-1">
                 <span class="block font-semibold text-sm dark:text-white"><span class="num-display">${escapeHtml(s.class_roll || '-')}</span> — ${escapeHtml(s.name || '')}${s.is_irregular ? ' <span class="chip chip-none">Irregular</span>' : ''}</span>
                 <span class="block text-xs text-gray-500 dark:text-gray-300">Reg: <span class="num-display">${escapeHtml(s.reg_no || '-')}</span></span>
@@ -196,7 +196,7 @@ function renderBulkAttendanceRows() {
         }).join('')}
       </div>
       ${filtered.length ? '' : '<p class="text-center text-gray-500 py-4">No matching students</p>'}
-      <button onclick="submitBulkAttendance()" ${selectedCount ? '' : 'disabled'} class="w-full bg-emerald-700 text-white px-5 py-3 rounded-xl font-bold btn-pop disabled:opacity-50 disabled:cursor-not-allowed">✅ Submit Attendance (${selectedCount})</button>
+      <button onclick="submitBulkAttendance()" ${selectedCount ? '' : 'disabled'} class="w-full bg-gradient-to-r from-emerald-700 to-teal-600 hover:from-emerald-800 hover:to-teal-700 text-white px-5 py-3 rounded-xl font-bold shadow-md btn-pop disabled:opacity-50 disabled:cursor-not-allowed">✅ Submit Attendance (${selectedCount})</button>
       <p class="text-xs text-gray-500 dark:text-gray-400 text-center">Eligible students: ${eligibleCount} · Existing records are protected from changes.</p>
     </div>`;
 
