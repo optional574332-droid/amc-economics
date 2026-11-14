@@ -28,8 +28,8 @@ async function studentLogin() {
     currentStudentToken = data.token;
     currentStudent = data.student;
     showSection('studentDashboard');
-    await loadStudentData();
-    toastSuccess(`Welcome, ${data.student.name}`);
+    const dashboardLoaded = await loadStudentData();
+    if (dashboardLoaded) toastSuccess(`Welcome, ${data.student.name}`);
   } catch (e) {
     console.error('Student login error:', e);
     errEl.textContent = 'Login failed. Check your connection and try again.';
@@ -44,7 +44,7 @@ async function loadStudentData() {
   if (!token) {
     currentStudent = null;
     showSection('studentLogin');
-    return;
+    return false;
   }
 
   try {
@@ -58,7 +58,7 @@ async function loadStudentData() {
       showSection('studentLogin');
       const errEl = document.getElementById('studentErr');
       if (errEl) errEl.textContent = err;
-      return;
+      return false;
     }
 
     const student = dashboard.student;
@@ -121,9 +121,11 @@ async function loadStudentData() {
       ${notices?.map(n => `<div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-4 rounded-r-xl mb-2 shadow-sm"><b class="dark:text-white text-base">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b><p class="text-sm text-gray-600 dark:text-gray-300 mt-1">${escapeHtml(n.content)}</p></div>`).join('') || '<p class="text-gray-400 text-sm">No notices</p>'}
     `;
     if (typeof exsStudentLoad === 'function') exsStudentLoad(student);
+    return true;
   } catch (e) {
     console.error('Student dashboard error:', e);
     const target = document.getElementById('studentContent');
     if (target) target.innerHTML = '<p class="text-red-600 text-center py-6">Could not load student dashboard. Please try again.</p>';
+    return false;
   }
 }
