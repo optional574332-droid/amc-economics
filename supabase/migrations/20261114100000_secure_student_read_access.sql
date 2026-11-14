@@ -75,6 +75,9 @@ begin
   delete from public.login_attempts where key = v_key;
 
   -- One active student login at a time: revoke earlier tokens before issuing a new one.
+  delete from private.student_access_tokens
+   where expires_at < now() - interval '30 days'
+      or revoked_at < now() - interval '30 days';
   update private.student_access_tokens
      set revoked_at = now()
    where student_id = v_student.id and revoked_at is null;
