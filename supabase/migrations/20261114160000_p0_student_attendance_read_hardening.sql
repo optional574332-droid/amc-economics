@@ -317,3 +317,12 @@ grant execute on function public.get_held_sessions(text, integer) to authenticat
 -- called by the current frontend (which uses t_live_attendance instead).
 -- Disable it for every API role to prevent cross-teacher session disclosure.
 revoke all on function public.t_session_students(text, uuid) from public, anon, authenticated;
+
+-- Legacy session-creation helper trusts a caller-supplied teacher UUID and
+-- does not require a teacher login token. Current frontend uses t_create_session.
+-- Disable this obsolete API entry point.
+revoke all on function public.teacher_create_session(uuid, text, text, text, date) from public, anon, authenticated;
+
+-- Course-ownership helper is an internal authorization primitive, not a client API.
+-- SECURITY DEFINER RPCs owned by the function owner can continue calling it.
+revoke all on function public.teacher_owns_course(uuid, text, text, text) from public, anon, authenticated;
