@@ -241,10 +241,20 @@ async function searchStudentForManual(query) {
     }
     return;
   }
-  const cols = 'id, name, class_roll, reg_no, session, is_irregular';
-  let { data: hit } = await db.from('students').select(cols).eq('year', year).eq('session_year', session_year).eq('status', 'active').or(rollFilter(q, false)).limit(5);
-  if (!hit || !hit.length) { const r = await db.from('students').select(cols).eq('year', year).eq('session_year', session_year).eq('status', 'active').or(rollFilter(q, true)).limit(10); hit = r.data || []; }
-  renderManualSuggestions(hit);
+  const { data, error } = await db.rpc('t_teacher_manual_student_lookup', {
+    p_token: currentTeacher?.token,
+    p_year: year,
+    p_session_year: session_year,
+    p_query: q,
+    p_include_name: true
+  });
+  if (error || !data?.ok) {
+    console.error('Manual student lookup failed:', error || data?.message);
+    toastError(data?.message || error?.message || 'Student search failed. Please try again.');
+    renderManualSuggestions([]);
+    return;
+  }
+  renderManualSuggestions(data.students || []);
 }
 
 function renderManualSuggestions(students) {
@@ -545,9 +555,17 @@ async function manualAttendance() {
     let stu = null;
     if (window._meStuId) stu = { id: window._meStuId, name: document.getElementById('meSearch').value };
     else {
-      const { data: student } = await db.from('students').select('id, name').eq('year', year).eq('session_year', session_year).eq('status', 'active').or(rollFilter(roll, false)).limit(2);
-      if (student && student.length > 1) return toastWarning('Several students match — search and pick one from the list');
-      stu = student && student[0] ? student[0] : null;
+      const { data: lookup, error: lookupError } = await db.rpc('t_teacher_manual_student_lookup', {
+        p_token: currentTeacher?.token,
+        p_year: year,
+        p_session_year: session_year,
+        p_query: roll,
+        p_include_name: false
+      });
+      if (lookupError || !lookup?.ok) return toastError(lookup?.message || lookupError?.message || 'Student lookup failed');
+      const student = lookup.students || [];
+      if (student.length > 1) return toastWarning('Several students match — search and pick one from the list');
+      stu = student[0] || null;
     }
     if (!stu) return toastError('Student not found');
     const { data: ma, error: maErr } = await db.rpc('t_manual_attendance', { p_token: currentTeacher.token, p_session_id: sess.id, p_student_id: stu.id, p_status: status });
