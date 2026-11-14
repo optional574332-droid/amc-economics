@@ -91,7 +91,7 @@ function renderTeacherDirectory() {
       wa ? `<a href="https://wa.me/${attrEsc(wa)}" target="_blank" rel="noopener" class="tbtn tbtn-wa">💬 WhatsApp</a>` : '',
       t.email ? `<a href="mailto:${attrEsc(t.email)}" class="tbtn tbtn-mail">✉️ Email</a>` : ''
     ].filter(Boolean);
-    const hasInfo = t.mobile || t.whatsapp || t.email || bio;
+    const hasInfo = t.subject || t.bcs_batch || bio;
     return `
     <div class="tcard fade-in">
       <div class="tcard-head bg-gradient-to-br ${grad}">
