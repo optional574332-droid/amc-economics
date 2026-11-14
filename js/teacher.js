@@ -476,13 +476,36 @@ function compareLiveStudentValues(a, b, field) {
 }
 
 function subscribeLive(sessionId) {
+  // Realtime publication is not enabled for attendance_records in Production.
+  // Use the same 5-second refresh cadence, but fetch only through the
+  // token-validated RPC so a browser cannot read arbitrary session records.
   if (liveChannel) { db.removeChannel(liveChannel); liveChannel = null; }
   if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
+
   const refresh = async () => {
-    const { data, error } = await db.from('attendance_records').select('marked_at, students(name, class_roll, reg_no)').eq('session_id', sessionId);
-    const rows = error || !data ? [] : data;
+    if (!currentTeacher?.token) {
+      const countEl = document.getElementById('liveCount');
+      const listEl = document.getElementById('liveList');
+      if (countEl) countEl.innerHTML = '<p class="text-lg font-bold text-red-600">Session expired</p>';
+      if (listEl) listEl.textContent = 'Please log in again.';
+      return;
+    }
+
+    const { data: result, error } = await db.rpc('t_live_attendance', {
+      p_token: currentTeacher.token,
+      p_session_id: sessionId
+    });
+
     const el = document.getElementById('liveCount');
-    if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600 num-display">${rows.length}</p><p class="text-gray-500 dark:text-gray-400">Present</p>`;
+    const el2 = document.getElementById('liveList');
+    if (error || !result?.ok) {
+      if (el) el.innerHTML = '<p class="text-lg font-bold text-red-600">Could not load</p><p class="text-gray-500 dark:text-gray-400">Live report unavailable</p>';
+      if (el2) el2.textContent = result?.message || error?.message || 'Could not load live attendance.';
+      return;
+    }
+
+    const rows = Array.isArray(result.rows) ? result.rows : [];
+    if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600 num-display">${Number(result.count) || 0}</p><p class="text-gray-500 dark:text-gray-400">Present</p>${result.truncated ? '<p class="text-xs text-amber-600">Showing first 1,000 records</p>' : ''}`;
     const sortSelect = document.getElementById('liveSortSelect');
     const sortMode = sortSelect?.value || liveSortMode || 'roll';
     liveSortMode = sortMode;
@@ -491,13 +514,12 @@ function subscribeLive(sessionId) {
       const field = sortMode === 'reg' ? 'reg_no' : 'class_roll';
       return compareLiveStudentValues(a, b, field) || compareLiveStudentValues(a, b, field === 'class_roll' ? 'reg_no' : 'class_roll');
     });
-    const el2 = document.getElementById('liveList');
     if (el2) el2.innerHTML = sortedRows.map(r => {
       const markedAt = r.marked_at ? new Date(r.marked_at) : null;
       return `<div class="bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded-lg flex justify-between items-center gap-3"><div class="min-w-0"><div class="dark:text-white font-medium">✅ ${escapeHtml(r.students?.name || 'Unknown student')}</div><div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 num-display">Roll: ${escapeHtml(r.students?.class_roll || '-')} · Reg: ${escapeHtml(r.students?.reg_no || '-')}</div></div><span class="text-xs text-gray-400 num-display whitespace-nowrap">${markedAt ? markedAt.toLocaleTimeString('en-GB') : '-'}</span></div>`;
     }).join('');
   };
-  liveChannel = db.channel('live_' + sessionId).on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `session_id=eq.${sessionId}` }, refresh).subscribe();
+
   liveReportInterval = setInterval(refresh, 5000);
   refresh();
 }
