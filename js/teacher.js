@@ -244,6 +244,7 @@ async function searchStudentForManual(query) {
   const { data, error } = await db.rpc('t_teacher_manual_student_lookup', {
     p_token: currentTeacher?.token,
     p_year: year,
+    p_course_code: cv.split('|')[0],
     p_session_year: session_year,
     p_query: q,
     p_include_name: true
@@ -558,6 +559,7 @@ async function manualAttendance() {
       const { data: lookup, error: lookupError } = await db.rpc('t_teacher_manual_student_lookup', {
         p_token: currentTeacher?.token,
         p_year: year,
+        p_course_code: course_code,
         p_session_year: session_year,
         p_query: roll,
         p_include_name: false
