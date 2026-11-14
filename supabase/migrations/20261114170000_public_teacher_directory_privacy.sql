@@ -1,6 +1,6 @@
 -- P0: keep the public Faculty Directory useful without exposing private contact details.
 -- This endpoint remains public because js/directory.js uses it for the public directory.
--- Phone, WhatsApp and email are intentionally excluded from the anonymous response.
+-- Phone, WhatsApp and email are intentionally excluded from the API response for all roles.
 
 create or replace function public.get_teacher_directory()
 returns jsonb
