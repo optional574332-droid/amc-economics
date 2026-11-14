@@ -147,3 +147,18 @@ No Production SQL was applied; no merge or deployment was performed. Runtime tes
 
 - The Admin-only `get_held_sessions(p_year, p_session_year)` report helper was also hardened in the same migration: it now checks `is_admin()` and its anonymous/public EXECUTE grants are revoked. Other SECURITY DEFINER endpoints surfaced by the advisor require separate intent-aware review; token/PIN-based Teacher and Student endpoints are not blanket-revoked because the app's custom login flows intentionally call them through the anonymous API role.
 - The current Production Security Advisor still reports generic SECURITY DEFINER warnings for 28 anon-callable functions and a leaked-password-protection setting warning. The two Admin student mutation RPCs and the held-session report helper are specifically addressed in this branch migration; the remaining warnings include intentional PIN/token endpoints and public informational endpoints, and must be individually reviewed rather than indiscriminately disabled.
+
+## Additional P0 authorization finding — legacy Teacher session roster RPC (2026-11-14)
+
+- Production catalog review found `public.t_session_students(p_token, p_session_id)` is still executable by the anonymous API role.
+- The function validates that the supplied teacher token is active and restricts results to today's sessions, but it does **not** verify that the session belongs to that teacher or to a course assigned to that teacher. A valid teacher token plus another teacher's session UUID could therefore disclose that session's student attendance roster.
+- The current branch frontend uses `t_live_attendance` for Live Attendance; no call to `t_session_students` was found in the reviewed `js/teacher.js`, `js/attendance.js`, `js/admin.js`, or `js/reports.js` files.
+- Added a branch-only revocation to `20261114160000_p0_student_attendance_read_hardening.sql`: revoke EXECUTE from `PUBLIC`, `anon`, and `authenticated` for this unused legacy RPC. The migration does not alter attendance data or any current frontend feature.
+- The change was committed on `security/p0-read-access-hardening` as `c3d5b20b2e1b80ba4cc5a9d2cf248b447c02ddd0`.
+- Static verification confirmed the revocation statement is present in the branch migration. No Production SQL was run, and no runtime positive/negative role test was possible because no isolated Supabase database is available.
+
+## Residual design consideration — shared PIN attendance
+
+- `pin_student_roster` is intentionally callable by `anon` only with an active, unexpired class PIN and returns the active roster needed by the existing offline cache. This is substantially narrower than the current Production-wide public `students_read` policy.
+- A class PIN is shared with students and is not an individual identity credential. A person who has the active PIN can enumerate that class roster and, because the existing attendance submission flow is PIN + student ID based, may be able to submit attendance on another student's behalf. This is a limitation of the current shared-PIN attendance design, not a new capability compared with the current broad public student-table read.
+- Removing this capability would require a separate product decision and a different student identity/attendance workflow; it is not silently changed in this P0 read-access migration.
