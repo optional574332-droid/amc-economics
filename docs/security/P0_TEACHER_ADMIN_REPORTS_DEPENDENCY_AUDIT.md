@@ -152,9 +152,9 @@ No Production SQL was applied; no merge or deployment was performed. Runtime tes
 
 - Production catalog review found `public.t_session_students(p_token, p_session_id)` is still executable by the anonymous API role.
 - The function validates that the supplied teacher token is active and restricts results to today's sessions, but it does **not** verify that the session belongs to that teacher or to a course assigned to that teacher. A valid teacher token plus another teacher's session UUID could therefore disclose that session's student attendance roster.
-- A complete repository-tree review found `js/teacher-routine.js` still calls `t_session_students` to expand today's class roster; revoking this RPC outright would have broken that Teacher Routine feature.
-- Corrected the branch migration to replace the RPC implementation rather than disable it. It now validates the teacher token, requires the session to belong to that teacher or a course assigned to that teacher, retains the same-day restriction and existing response shape, and grants execution to the API roles used by the current frontend.
-- Static review confirms the current Teacher Routine call remains supported and the missing session/course ownership check is now present in the branch migration. No Production SQL was run, and no runtime positive/negative role test was possible because no isolated Supabase database is available.
+- A complete repository-tree review found `js/teacher-routine.js` calls `t_session_students` from the department-wide Today Summary. Production currently validates an active teacher token and restricts this view to today's sessions, but does not restrict the session to the caller's own course. The user's explicit instruction is to preserve that existing read scope.
+- The branch migration retains active teacher-token validation, the same-day restriction, the existing response shape, and API-role execution, but does not add a teacher/course ownership restriction to this read-only RPC. This preserves the current ability for teachers to view other teachers' same-day attendance lists in Today Summary.
+- Attendance write RPCs (`t_manual_attendance`, `t_bulk_attendance`, and `t_update_status`) continue to use separate teacher/session or course-ownership checks. This read permission does not grant permission to edit or delete another teacher's attendance. Static review only; no isolated database/runtime role test is available, and no Production SQL was run.
 
 ## Residual design consideration — shared PIN attendance
 
