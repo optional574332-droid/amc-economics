@@ -76,3 +76,20 @@ The existing Production audit recorded permissive SELECT policies (`students_rea
 - No frontend code was changed in this audit step.
 - No PR, merge or deployment was performed.
 - This document records static source dependencies, not a claim that the workflows have been runtime-tested.
+
+## Implementation checkpoint — Teacher Live Report (2026-11-14)
+
+Implemented on the isolated branch only:
+
+- Added `supabase/migrations/20261114123000_teacher_live_report_secure_rpc.sql`.
+- Added `public.t_live_attendance(p_token, p_session_id)`, a SECURITY DEFINER RPC with an empty search_path.
+- The RPC validates the teacher token through `_teacher_id_from_token`, then checks that the teacher owns the session or is assigned to that session's course/year before returning student name, roll, registration number, and marked time.
+- Response is bounded to 1,000 rows and includes total count plus a truncation indicator.
+- Updated `js/teacher.js` so Live Report no longer directly selects from `attendance_records`; it uses the scoped RPC and retains the existing 5-second refresh interval.
+- Removed the ineffective Realtime subscription from this Live Report path. The Production publication query showed `attendance_records` is not currently included in any publication.
+
+Static branch checks passed for: token validation, session/course authorization, empty search_path, public EXECUTE revocation, bounded result size, frontend RPC usage, removal of the direct Live Report SELECT, 5-second polling, and RPC error display.
+
+**Not yet closed:** the Production table-level `anon` SELECT grant and `att_read USING (true)` policy remain in place. Other Teacher/Admin/Reports screens still contain direct table reads, so removing those grants/policies before migrating their dependencies could break existing workflows. This Live Report change is therefore a scoped first step, not a complete closure of the P0 public-read exposure.
+
+No Production SQL was applied. No merge or deployment was performed. Runtime behavior was not tested.
