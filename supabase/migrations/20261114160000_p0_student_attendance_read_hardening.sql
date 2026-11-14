@@ -339,9 +339,9 @@ begin
   if v_s.date <> v_date then
     return jsonb_build_object('ok', false, 'message', 'Only today''s classes can be viewed here');
   end if;
-  if not (coalesce(v_s.teacher_id = v_tid, false) or public.teacher_owns_course(v_tid, v_s.session, v_s.year, v_s.course_code)) then
-    return jsonb_build_object('ok', false, 'message', 'This session is not assigned to your account');
-  end if;
+  -- Preserve the current department-wide read behavior for authenticated teachers:
+  -- any active teacher may view today's session roster from Today Summary.
+  -- This RPC is read-only; write RPCs retain their separate course-ownership checks.
   select coalesce(jsonb_agg(jsonb_build_object(
            'status', r.status, 'marked_at', r.marked_at,
            'class_roll', st.class_roll, 'reg_no', st.reg_no, 'name', st.name,
