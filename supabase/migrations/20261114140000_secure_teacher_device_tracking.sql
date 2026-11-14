@@ -32,8 +32,8 @@ begin
   from (
     select st.id, st.name, st.class_roll, st.reg_no, st.session, st.session_year, st.year
     from public.students st
-    where st.class_roll ilike '%' || replace(replace(replace(v_query, '%', '\\%'), '_', '\\_'), '\\', '\\\\') || '%'
-       or st.reg_no ilike '%' || replace(replace(replace(v_query, '%', '\\%'), '_', '\\_'), '\\', '\\\\') || '%'
+    where position(lower(v_query) in lower(coalesce(st.class_roll, ''))) > 0
+       or position(lower(v_query) in lower(coalesce(st.reg_no, ''))) > 0
     order by st.session_year desc, st.year, st.class_roll
     limit 50
   ) x;
