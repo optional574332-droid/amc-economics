@@ -339,7 +339,7 @@ begin
   if v_s.date <> v_date then
     return jsonb_build_object('ok', false, 'message', 'Only today''s classes can be viewed here');
   end if;
-  if not (v_s.teacher_id = v_tid or public.teacher_owns_course(v_tid, v_s.session, v_s.year, v_s.course_code)) then
+  if not (coalesce(v_s.teacher_id = v_tid, false) or public.teacher_owns_course(v_tid, v_s.session, v_s.year, v_s.course_code)) then
     return jsonb_build_object('ok', false, 'message', 'This session is not assigned to your account');
   end if;
   select coalesce(jsonb_agg(jsonb_build_object(
