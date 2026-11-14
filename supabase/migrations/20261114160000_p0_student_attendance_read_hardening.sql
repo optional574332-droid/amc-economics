@@ -265,3 +265,50 @@ grant execute on function public.admin_promote_students(text, integer, uuid[], b
 
 revoke all on function public.bulk_update_students(integer, text, jsonb) from public, anon;
 grant execute on function public.bulk_update_students(integer, text, jsonb) to authenticated;
+
+-- Held-session metadata is consumed by the Admin Attendance Report only.
+-- Do not leave this SECURITY DEFINER report helper publicly callable.
+create or replace function public.get_held_sessions(
+  p_year text,
+  p_session_year integer
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  v_sessions jsonb;
+begin
+  if not public.is_admin() then
+    return '[]'::jsonb;
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', s.id,
+        'course_code', s.course_code,
+        'date', s.date
+      ) order by s.date, s.course_code
+    ),
+    '[]'::jsonb
+  )
+  into v_sessions
+  from public.attendance_sessions s
+  where s.year = p_year
+    and s.session_year = p_session_year
+    and exists (
+      select 1
+      from public.attendance_records r
+      where r.session_id = s.id
+        and r.status in ('present', 'late')
+    );
+
+  return v_sessions;
+end
+$function$;
+
+revoke all on function public.get_held_sessions(text, integer) from public, anon;
+grant execute on function public.get_held_sessions(text, integer) to authenticated;
