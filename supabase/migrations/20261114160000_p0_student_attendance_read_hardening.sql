@@ -366,3 +366,8 @@ revoke all on function public.teacher_create_session(uuid, text, text, text, dat
 -- Course-ownership helper is an internal authorization primitive, not a client API.
 -- SECURITY DEFINER RPCs owned by the function owner can continue calling it.
 revoke all on function public.teacher_owns_course(uuid, text, text, text) from public, anon, authenticated;
+
+-- Least-privilege: authenticated users need SELECT/INSERT/UPDATE/DELETE only
+-- as governed by RLS. These table-level privileges are not required by the app.
+revoke truncate, references, trigger on table public.students from authenticated;
+revoke truncate, references, trigger on table public.attendance_records from authenticated;
