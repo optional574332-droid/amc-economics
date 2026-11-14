@@ -5,7 +5,9 @@
 let teacherDirCache = null;
 let teacherDirLoading = false;
 try {
-  const saved = localStorage.getItem('amc_teacher_dir_cache_v2');
+  // Remove the previous cache because it may contain private phone/email fields.
+  localStorage.removeItem('amc_teacher_dir_cache_v2');
+  const saved = localStorage.getItem('amc_teacher_dir_cache_v3');
   if (saved) teacherDirCache = JSON.parse(saved);
 } catch (e) { teacherDirCache = null; }
 
@@ -143,7 +145,7 @@ async function loadTeacherDirectory(forceReload = false) {
   try {
     const data = await fetchTeacherDirectoryData(2);
     teacherDirCache = data;
-    try { localStorage.setItem('amc_teacher_dir_cache_v2', JSON.stringify(data)); } catch (e) {}
+    try { localStorage.setItem('amc_teacher_dir_cache_v3', JSON.stringify(data)); } catch (e) {}
     renderTeacherDirectory();
   } catch (err) {
     if (teacherDirCache) {
