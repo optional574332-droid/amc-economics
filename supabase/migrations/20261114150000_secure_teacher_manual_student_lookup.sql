@@ -87,4 +87,4 @@ end
 $function$;
 
 revoke all on function public.t_teacher_manual_student_lookup(text, text, text, integer, text, boolean) from public;
-grant execute on function public.t_teacher_manual_student_lookup(text, text, integer, text, boolean) to anon, authenticated;
+grant execute on function public.t_teacher_manual_student_lookup(text, text, text, integer, text, boolean) to anon, authenticated;
