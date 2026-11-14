@@ -313,10 +313,50 @@ $function$;
 revoke all on function public.get_held_sessions(text, integer) from public, anon;
 grant execute on function public.get_held_sessions(text, integer) to authenticated;
 
--- Legacy teacher live-report RPC has no session-ownership check and is no longer
--- called by the current frontend (which uses t_live_attendance instead).
--- Disable it for every API role to prevent cross-teacher session disclosure.
-revoke all on function public.t_session_students(text, uuid) from public, anon, authenticated;
+-- Teacher Routine still calls this RPC to expand today's class roster. Keep the
+-- API entry point, but enforce the same ownership/course-assignment rule as the
+-- newer Live Attendance RPC before returning student attendance details.
+create or replace function public.t_session_students(p_token text, p_session_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  v_tid uuid := public._teacher_id_from_token(p_token);
+  v_date date := (now() at time zone 'Asia/Dhaka')::date;
+  v_s public.attendance_sessions%rowtype;
+  v_recs jsonb;
+begin
+  if v_tid is null then
+    return jsonb_build_object('ok', false, 'message', 'Login expired, please login again');
+  end if;
+  select * into v_s from public.attendance_sessions where id = p_session_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'message', 'Session not found');
+  end if;
+  if v_s.date <> v_date then
+    return jsonb_build_object('ok', false, 'message', 'Only today''s classes can be viewed here');
+  end if;
+  if not (v_s.teacher_id = v_tid or public.teacher_owns_course(v_tid, v_s.session, v_s.year, v_s.course_code)) then
+    return jsonb_build_object('ok', false, 'message', 'This session is not assigned to your account');
+  end if;
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'status', r.status, 'marked_at', r.marked_at,
+           'class_roll', st.class_roll, 'reg_no', st.reg_no, 'name', st.name,
+           'is_irregular', st.is_irregular,
+           'geo_status', r.geo_status, 'geo_distance_m', r.geo_distance_m
+         ) order by st.class_roll), '[]'::jsonb)
+    into v_recs
+  from public.attendance_records r
+  join public.students st on st.id = r.student_id
+  where r.session_id = p_session_id;
+  return jsonb_build_object('ok', true, 'records', v_recs);
+end
+$function$;
+revoke all on function public.t_session_students(text, uuid) from public;
+grant execute on function public.t_session_students(text, uuid) to anon, authenticated;
 
 -- Legacy session-creation helper trusts a caller-supplied teacher UUID and
 -- does not require a teacher login token. Current frontend uses t_create_session.
