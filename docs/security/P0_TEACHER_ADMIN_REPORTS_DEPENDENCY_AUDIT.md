@@ -126,3 +126,11 @@ Static checks confirmed the two RPC calls are wired in the frontend, direct tabl
 Remaining direct Teacher reads still include manual-attendance student lookup and fallback resolution. Admin and general Reports direct reads also remain. The public `att_read USING (true)` policy and `anon` SELECT grant have intentionally not been removed because other workflows still depend on direct table access.
 
 No Production SQL was applied; no merge or deployment was performed. Runtime testing was not performed.
+
+
+## Manual Attendance Student Lookup hardening (2026-11-14)
+- Added branch-only RPC migration `20261114150000_secure_teacher_manual_student_lookup.sql`.
+- The RPC requires an active teacher token, the selected class year, exact selected course assignment, session year, and a bounded search query. It returns only active, non-archived students from that class/session year, with the limited fields required by Manual Attendance.
+- `js/teacher.js` now uses this RPC for online suggestions and the no-selection exact-match fallback; direct browser reads from `students` were removed from these two Manual Attendance lookup paths. Offline local-cache lookup remains unchanged; the final `t_manual_attendance` RPC still validates the selected student against the session class/session year and active status.
+- No changes were made to the attendance write RPC, existing attendance records, offline cache, or Production database.
+- Static review only: frontend call arguments and RPC signature were checked; SQL was not executed, browser behavior was not runtime-tested, and the migration has not been applied to Production.
