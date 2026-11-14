@@ -777,7 +777,15 @@ async function loadMarkEntry() {
   showGlobalLoader();
   try {
     let sRaw, sE;
-    try { sRaw = await classStudents(year, 'id, name, class_roll, reg_no, session, is_irregular', session_year); } catch (e) { sE = e; }
+    try {
+      const { data: roster, error: rosterError } = await db.rpc('t_teacher_student_roster', {
+        p_token: currentTeacher?.token, p_year: year, p_session_year: session_year
+      });
+      if (rosterError) throw rosterError;
+      if (!roster?.ok) throw new Error(roster?.message || 'Student list access denied');
+      if (roster.truncated) throw new Error('Student list is too large to load.');
+      sRaw = roster.students || [];
+    } catch (e) { sE = e; }
     if (sE) return toastError(sE.message);
     const students = sortStudents(sRaw || []);
     if (!students.length) { toastWarning('No students'); return; }
