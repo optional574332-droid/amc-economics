@@ -266,8 +266,8 @@ grant execute on function public.admin_promote_students(text, integer, uuid[], b
 revoke all on function public.bulk_update_students(integer, text, jsonb) from public, anon;
 grant execute on function public.bulk_update_students(integer, text, jsonb) to authenticated;
 
--- Held-session metadata is consumed by the Admin Attendance Report only.
--- Do not leave this SECURITY DEFINER report helper publicly callable.
+-- Held-session metadata is consumed by the Admin Attendance and Admin Individual Reports.
+-- Student Dashboard uses its separate token-validated RPC flow. Keep this helper Admin-only.
 create or replace function public.get_held_sessions(
   p_year text,
   p_session_year integer
