@@ -193,11 +193,22 @@ function withTimeout(promise, ms) {
     localStorage.setItem('amc_cache_ver', 'sy1');
   } catch (e) { /* private mode */ }
 })();
-async function cacheStudentsFor(year, session_year) {
+async function cacheStudentsFor(year, session_year, access = {}) {
   if (!navigator.onLine || !session_year || !year) return;
   try {
-    const data = await classStudents(year, 'id, name, class_roll, reg_no, session, is_irregular', session_year);
-    localStorage.setItem('amc_students_' + year + '_' + session_year, JSON.stringify(data));
+    let data, error;
+    if (access.pin) {
+      ({ data, error } = await db.rpc('pin_student_roster', { p_pin: access.pin }));
+    } else if (access.teacherToken) {
+      ({ data, error } = await db.rpc('t_teacher_student_roster', {
+        p_token: access.teacherToken, p_year: year, p_session_year: session_year
+      }));
+    } else {
+      return;
+    }
+    if (error) throw error;
+    if (!data?.ok) throw new Error(data?.message || 'Student roster access denied');
+    localStorage.setItem('amc_students_' + year + '_' + session_year, JSON.stringify(data.students || []));
   } catch (e) { console.warn('student cache', e); }
 }
 
@@ -206,7 +217,7 @@ async function cacheTeacherStudents() {
   try {
     const { data } = await db.from('teacher_courses').select('year').eq('teacher_id', currentTeacher.id);
     for (const y of new Set((data || []).map(r => r.year))) {
-      for (const sy of await getAvailableSessionYears(y)) await cacheStudentsFor(y, sy);
+      for (const sy of await getAvailableSessionYears(y)) await cacheStudentsFor(y, sy, { teacherToken: currentTeacher.token });
     }
   } catch (e) { console.warn('teacher student cache', e); }
 }

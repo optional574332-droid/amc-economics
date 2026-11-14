@@ -241,10 +241,21 @@ async function searchStudentForManual(query) {
     }
     return;
   }
-  const cols = 'id, name, class_roll, reg_no, session, is_irregular';
-  let { data: hit } = await db.from('students').select(cols).eq('year', year).eq('session_year', session_year).eq('status', 'active').or(rollFilter(q, false)).limit(5);
-  if (!hit || !hit.length) { const r = await db.from('students').select(cols).eq('year', year).eq('session_year', session_year).eq('status', 'active').or(rollFilter(q, true)).limit(10); hit = r.data || []; }
-  renderManualSuggestions(hit);
+  const { data, error } = await db.rpc('t_teacher_manual_student_lookup', {
+    p_token: currentTeacher?.token,
+    p_year: year,
+    p_course_code: cv.split('|')[0],
+    p_session_year: session_year,
+    p_query: q,
+    p_include_name: true
+  });
+  if (error || !data?.ok) {
+    console.error('Manual student lookup failed:', error || data?.message);
+    toastError(data?.message || error?.message || 'Student search failed. Please try again.');
+    renderManualSuggestions([]);
+    return;
+  }
+  renderManualSuggestions(data.students || []);
 }
 
 function renderManualSuggestions(students) {
@@ -476,13 +487,36 @@ function compareLiveStudentValues(a, b, field) {
 }
 
 function subscribeLive(sessionId) {
+  // Realtime publication is not enabled for attendance_records in Production.
+  // Use the same 5-second refresh cadence, but fetch only through the
+  // token-validated RPC so a browser cannot read arbitrary session records.
   if (liveChannel) { db.removeChannel(liveChannel); liveChannel = null; }
   if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
+
   const refresh = async () => {
-    const { data, error } = await db.from('attendance_records').select('marked_at, students(name, class_roll, reg_no)').eq('session_id', sessionId);
-    const rows = error || !data ? [] : data;
+    if (!currentTeacher?.token) {
+      const countEl = document.getElementById('liveCount');
+      const listEl = document.getElementById('liveList');
+      if (countEl) countEl.innerHTML = '<p class="text-lg font-bold text-red-600">Session expired</p>';
+      if (listEl) listEl.textContent = 'Please log in again.';
+      return;
+    }
+
+    const { data: result, error } = await db.rpc('t_live_attendance', {
+      p_token: currentTeacher.token,
+      p_session_id: sessionId
+    });
+
     const el = document.getElementById('liveCount');
-    if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600 num-display">${rows.length}</p><p class="text-gray-500 dark:text-gray-400">Present</p>`;
+    const el2 = document.getElementById('liveList');
+    if (error || !result?.ok) {
+      if (el) el.innerHTML = '<p class="text-lg font-bold text-red-600">Could not load</p><p class="text-gray-500 dark:text-gray-400">Live report unavailable</p>';
+      if (el2) el2.textContent = result?.message || error?.message || 'Could not load live attendance.';
+      return;
+    }
+
+    const rows = Array.isArray(result.rows) ? result.rows : [];
+    if (el) el.innerHTML = `<p class="text-6xl font-bold text-emerald-600 num-display">${Number(result.count) || 0}</p><p class="text-gray-500 dark:text-gray-400">Present</p>${result.truncated ? '<p class="text-xs text-amber-600">Showing first 1,000 records</p>' : ''}`;
     const sortSelect = document.getElementById('liveSortSelect');
     const sortMode = sortSelect?.value || liveSortMode || 'roll';
     liveSortMode = sortMode;
@@ -491,13 +525,12 @@ function subscribeLive(sessionId) {
       const field = sortMode === 'reg' ? 'reg_no' : 'class_roll';
       return compareLiveStudentValues(a, b, field) || compareLiveStudentValues(a, b, field === 'class_roll' ? 'reg_no' : 'class_roll');
     });
-    const el2 = document.getElementById('liveList');
     if (el2) el2.innerHTML = sortedRows.map(r => {
       const markedAt = r.marked_at ? new Date(r.marked_at) : null;
       return `<div class="bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded-lg flex justify-between items-center gap-3"><div class="min-w-0"><div class="dark:text-white font-medium">✅ ${escapeHtml(r.students?.name || 'Unknown student')}</div><div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 num-display">Roll: ${escapeHtml(r.students?.class_roll || '-')} · Reg: ${escapeHtml(r.students?.reg_no || '-')}</div></div><span class="text-xs text-gray-400 num-display whitespace-nowrap">${markedAt ? markedAt.toLocaleTimeString('en-GB') : '-'}</span></div>`;
     }).join('');
   };
-  liveChannel = db.channel('live_' + sessionId).on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `session_id=eq.${sessionId}` }, refresh).subscribe();
+
   liveReportInterval = setInterval(refresh, 5000);
   refresh();
 }
@@ -523,9 +556,18 @@ async function manualAttendance() {
     let stu = null;
     if (window._meStuId) stu = { id: window._meStuId, name: document.getElementById('meSearch').value };
     else {
-      const { data: student } = await db.from('students').select('id, name').eq('year', year).eq('session_year', session_year).eq('status', 'active').or(rollFilter(roll, false)).limit(2);
-      if (student && student.length > 1) return toastWarning('Several students match — search and pick one from the list');
-      stu = student && student[0] ? student[0] : null;
+      const { data: lookup, error: lookupError } = await db.rpc('t_teacher_manual_student_lookup', {
+        p_token: currentTeacher?.token,
+        p_year: year,
+        p_course_code: course_code,
+        p_session_year: session_year,
+        p_query: roll,
+        p_include_name: false
+      });
+      if (lookupError || !lookup?.ok) return toastError(lookup?.message || lookupError?.message || 'Student lookup failed');
+      const student = lookup.students || [];
+      if (student.length > 1) return toastWarning('Several students match — search and pick one from the list');
+      stu = student[0] || null;
     }
     if (!stu) return toastError('Student not found');
     const { data: ma, error: maErr } = await db.rpc('t_manual_attendance', { p_token: currentTeacher.token, p_session_id: sess.id, p_student_id: stu.id, p_status: status });
@@ -601,22 +643,30 @@ async function loadTeacherAttendanceReport() {
 
   if (!sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
   const sIds = sessions.map(s => s.id);
-  let recordResult = await db.from('attendance_records')
-    .select('id, session_id, student_id, status, marked_at, device_id, marked_by, attendance_source, students(name, class_roll, reg_no)')
-    .in('session_id', sIds);
-  if (recordResult.error && /attendance_source|column .* does not exist|schema cache/i.test(recordResult.error.message || '')) {
-    recordResult = await db.from('attendance_records')
-      .select('id, session_id, student_id, status, marked_at, device_id, marked_by, students(name, class_roll, reg_no)')
-      .in('session_id', sIds);
+  const reportRecords = [];
+  for (let i = 0; i < sIds.length; i += 25) {
+    const { data: reportResult, error: reportError } = await db.rpc('t_teacher_attendance_records', {
+      p_token: currentTeacher.token,
+      p_session_ids: sIds.slice(i, i + 25)
+    });
+    if (reportError || !reportResult?.ok) {
+      area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(reportResult?.message || reportError?.message || 'Could not load attendance records')}</p>`;
+      return;
+    }
+    if (reportResult.truncated) {
+      area.innerHTML = '<p class="text-red-500 text-center py-4">এই রিপোর্টে রেকর্ডের সংখ্যা বেশি। অনুগ্রহ করে তারিখের পরিসর ছোট করুন।</p>';
+      return;
+    }
+    if (Array.isArray(reportResult.records)) reportRecords.push(...reportResult.records);
   }
-  if (recordResult.error) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(recordResult.error.message)}</p>`; return; }
+
   const byS = {};
   sessions.forEach(s => { byS[s.id] = { session: s, records: [] }; });
-  (recordResult.data || []).forEach(r => {
+  reportRecords.forEach(r => {
     const group = byS[r.session_id];
     if (!group) return;
-    // For a shared session owned by another teacher, show only this teacher's
-    // own Bulk rows; do not expose the other teacher's PIN/manual roster here.
+    // The RPC already enforces owner/shared-bulk authorization; retain this
+    // client-side filter as defense in depth for shared sessions.
     if (group.session.teacher_id !== currentTeacher.id &&
         !(r.marked_by === currentTeacher.id && r.attendance_source === 'bulk')) return;
     group.records.push(r);
@@ -924,17 +974,22 @@ async function searchByDeviceId() {
   if (!dateFilter) return;
   showGlobalLoader();
   try {
-    let query = db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).ilike('device_id', `${deviceId}%`);
-    if (dateFilter.from) query = query.gte('marked_at', `${dateFilter.from}T00:00:00+06:00`).lt('marked_at', `${dateFilter.nextDay}T00:00:00+06:00`);
-    const { data: records, error } = await query.order('marked_at', { ascending: false }).limit(500);
-    if (error) return toastError(error.message);
-    if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No attendance found for this device</p></div>`; return; }
+    const { data, error } = await db.rpc('t_teacher_tracking_records', {
+      p_token: currentTeacher.token,
+      p_device_prefix: deviceId,
+      p_student_id: null,
+      p_from: dateFilter.from || null,
+      p_to: dateFilter.to || null
+    });
+    if (error || !data?.ok) return toastError(data?.message || error?.message || 'Tracking search failed');
+    const records = data.records || [];
+    if (!records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No attendance found for this device</p></div>`; return; }
     const uniqueStudents = new Set(records.map(r => r.students?.class_roll)).size;
     const uniqueCourses = new Set(records.map(r => r.attendance_sessions?.course_code)).size;
     const firstDate = records[records.length - 1]?.marked_at;
     const lastDate = records[0]?.marked_at;
     const flags = detectSuspicious(records);
-    renderTrackingResult({ type: 'device', title: `Device: ${deviceId}`, records, summary: { totalAttendances: records.length, uniqueStudents, uniqueCourses, firstDate, lastDate }, flags });
+    renderTrackingResult({ type: 'device', title: `Device: ${deviceId}`, records, summary: { totalAttendances: data.count ?? records.length, uniqueStudents, uniqueCourses, firstDate, lastDate }, flags, truncated: data.truncated });
   } finally { hideGlobalLoader(); }
 }
 
@@ -945,9 +1000,13 @@ async function searchByStudentRoll() {
   if (!dateFilter) return;
   showGlobalLoader();
   try {
-    const { data: students, error: sErr } = await db.from('students').select('id, name, class_roll, reg_no, session, session_year, year').or(`class_roll.eq.${roll},reg_no.eq.${roll}`).order('session_year', { ascending: false });
-    if (sErr) return toastError(sErr.message);
-    if (!students || !students.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No student with this roll</p></div>`; return; }
+    const { data, error } = await db.rpc('t_teacher_tracking_students', {
+      p_token: currentTeacher.token,
+      p_query: roll
+    });
+    if (error || !data?.ok) return toastError(data?.message || error?.message || 'Student search failed');
+    const students = data.students || [];
+    if (!students.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No student with this roll</p></div>`; return; }
     if (students.length > 1) {
       const area = document.getElementById('trackingResultArea');
       area.innerHTML = `<div class="bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-300 dark:border-amber-700 rounded-xl p-4"><h4 class="font-bold text-amber-700 dark:text-amber-300 mb-3">⚠️ ${students.length} students found — pick one</h4><div class="space-y-2">${students.map(s => `<button class="student-pick-btn w-full bg-white dark:bg-gray-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-3 rounded-lg text-left transition btn-pop" data-id="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}"><div class="flex justify-between items-center"><div><p class="font-bold text-gray-800 dark:text-white">${escapeHtml(s.name)}</p><p class="text-xs text-gray-500 dark:text-gray-400 num-display">Roll: ${escapeHtml(s.class_roll)} · Reg: ${escapeHtml(s.reg_no || '-')}</p></div><div class="text-right"><p class="text-sm font-bold text-indigo-600 dark:text-indigo-300 num-display">${escapeHtml(s.session_year)}</p><p class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(s.year)}</p></div></div></button>`).join('')}</div></div>`;
@@ -961,20 +1020,28 @@ async function searchByStudentRoll() {
 async function loadStudentTracking(studentId, studentName) {
   const dateFilter = getTrackingDateFilter();
   if (!dateFilter) return;
-  let query = db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).eq('student_id', studentId);
-  if (dateFilter.from) query = query.gte('marked_at', `${dateFilter.from}T00:00:00+06:00`).lt('marked_at', `${dateFilter.nextDay}T00:00:00+06:00`);
-  const { data: records, error: rErr } = await query.order('marked_at', { ascending: false }).limit(500);
-  if (rErr) return toastError(rErr.message);
-  if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center"><p class="text-sm text-blue-700 dark:text-blue-300">ℹ️ No attendance found for ${escapeHtml(studentName)}</p></div>`; return; }
-  const uniqueDevices = new Set(records.map(r => r.device_id)).size;
-  const firstDate = records[records.length - 1]?.marked_at;
-  const lastDate = records[0]?.marked_at;
-  const flags = detectSuspicious(records);
-  const student = records[0].students;
-  renderTrackingResult({ type: 'student', title: `Student: ${studentName} (Roll: ${student?.class_roll})`, records, summary: { totalAttendances: records.length, uniqueDevices, firstDate, lastDate, student }, flags });
+  showGlobalLoader();
+  try {
+    const { data, error } = await db.rpc('t_teacher_tracking_records', {
+      p_token: currentTeacher.token,
+      p_device_prefix: null,
+      p_student_id: studentId,
+      p_from: dateFilter.from || null,
+      p_to: dateFilter.to || null
+    });
+    if (error || !data?.ok) return toastError(data?.message || error?.message || 'Student tracking failed');
+    const records = data.records || [];
+    if (!records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center"><p class="text-sm text-blue-700 dark:text-blue-300">ℹ️ No attendance found for ${escapeHtml(studentName)}</p></div>`; return; }
+    const uniqueDevices = new Set(records.map(r => r.device_id)).size;
+    const firstDate = records[records.length - 1]?.marked_at;
+    const lastDate = records[0]?.marked_at;
+    const flags = detectSuspicious(records);
+    const student = records[0].students;
+    renderTrackingResult({ type: 'student', title: `Student: ${studentName} (Roll: ${student?.class_roll})`, records, summary: { totalAttendances: data.count ?? records.length, uniqueDevices, firstDate, lastDate, student }, flags, truncated: data.truncated });
+  } finally { hideGlobalLoader(); }
 }
 
-function renderTrackingResult({ type, title, records, summary, flags }) {
+function renderTrackingResult({ type, title, records, summary, flags, truncated = false }) {
   const area = document.getElementById('trackingResultArea');
   let summaryHtml = '';
   if (type === 'device') {
@@ -983,6 +1050,8 @@ function renderTrackingResult({ type, title, records, summary, flags }) {
     summaryHtml = `<div class="grid grid-cols-3 gap-2 mb-3"><div class="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-xl text-center"><p class="text-xs text-indigo-600 dark:text-indigo-300">Total</p><p class="text-2xl font-bold text-indigo-800 dark:text-indigo-200 num-display">${summary.totalAttendances}</p></div><div class="bg-purple-50 dark:bg-purple-900/30 p-3 rounded-xl text-center"><p class="text-xs text-purple-600 dark:text-purple-300">Devices used</p><p class="text-2xl font-bold text-purple-800 dark:text-purple-200 num-display">${summary.uniqueDevices}</p></div><div class="bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl text-center"><p class="text-xs text-amber-600 dark:text-amber-300">Date range</p><p class="text-xs font-bold text-amber-800 dark:text-amber-200 num-display">${summary.firstDate ? new Date(summary.firstDate).toLocaleDateString('en-GB') : '-'}<br>→<br>${summary.lastDate ? new Date(summary.lastDate).toLocaleDateString('en-GB') : '-'}</p></div></div>`;
   }
 
+  const truncatedHtml = truncated ? '<div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 rounded-lg p-2 text-sm text-amber-800 dark:text-amber-200">Showing the latest 500 records only. Narrow the date range for a complete view.</div>' : '';
+
   let flagsHtml = '';
   if (flags && flags.length > 0) {
     flagsHtml = `<div class="bg-red-50 dark:bg-red-900/30 border-2 border-red-300 dark:border-red-700 p-3 rounded-xl mb-3"><p class="font-bold text-red-700 dark:text-red-300 mb-2">🚩 Suspicious activity</p>${flags.map(f => `<div class="bg-white dark:bg-gray-700 p-2 rounded-lg mb-1"><span class="suspicious-flag">${f.type === 'many_students' ? '👥' : '⚡'}</span><span class="text-sm dark:text-white ml-2">${escapeHtml(f.message)}</span></div>`).join('')}</div>`;
@@ -990,7 +1059,7 @@ function renderTrackingResult({ type, title, records, summary, flags }) {
 
   const tableHtml = `<div class="overflow-x-auto max-h-[500px] overflow-y-auto"><table class="min-w-full text-xs border dark:border-gray-600"><thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr><th class="p-2 border dark:border-gray-600 dark:text-white">Date</th><th class="p-2 border dark:border-gray-600 dark:text-white">Time</th><th class="p-2 border dark:border-gray-600 dark:text-white">Student</th><th class="p-2 border dark:border-gray-600 dark:text-white">Course</th><th class="p-2 border dark:border-gray-600 dark:text-white">Device</th><th class="p-2 border dark:border-gray-600 dark:text-white">Status</th></tr></thead><tbody>${records.map(r => { const stIcons = { present: '✅', absent: '❌', late: '⏰', excused: '📝' }; const dt = r.marked_at ? new Date(r.marked_at) : null; return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"><td class="p-2 border dark:border-gray-600 text-center num-display">${dt ? dt.toLocaleDateString('en-GB') : '-'}</td><td class="p-2 border dark:border-gray-600 text-center num-display">${dt ? dt.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : '-'}</td><td class="p-2 border dark:border-gray-600">${escapeHtml(r.students?.name || '-')} <span class="text-xs text-gray-500 num-display">(${escapeHtml(r.students?.class_roll || '-')})</span></td><td class="p-2 border dark:border-gray-600 text-center num-display">${escapeHtml(r.attendance_sessions?.course_code ? courseLabel(r.attendance_sessions.course_code) : '-')}</td><td class="p-2 border dark:border-gray-600 text-center"><span class="device-badge">${shortDevice(r.device_id)}</span></td><td class="p-2 border dark:border-gray-600 text-center">${stIcons[r.status] || r.status}</td></tr>`; }).join('')}</tbody></table></div>`;
 
-  area.innerHTML = `<div class="bg-white dark:bg-gray-700 border-2 border-orange-200 dark:border-orange-700 rounded-xl p-4 space-y-3"><h4 class="font-bold text-orange-700 dark:text-orange-300">🔍 ${escapeHtml(title)}</h4>${summaryHtml}${flagsHtml}<p class="text-xs text-gray-500 dark:text-gray-400">${records.length} records</p>${tableHtml}<div class="flex gap-2 mt-3"><button onclick="exportTrackingExcel()" class="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-bold btn-pop text-sm">📊 Excel</button><button onclick="exportTrackingPDF()" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold btn-pop text-sm">📄 PDF</button></div></div>`;
+  area.innerHTML = `<div class="bg-white dark:bg-gray-700 border-2 border-orange-200 dark:border-orange-700 rounded-xl p-4 space-y-3"><h4 class="font-bold text-orange-700 dark:text-orange-300">🔍 ${escapeHtml(title)}</h4>${summaryHtml}${truncatedHtml}${flagsHtml}<p class="text-xs text-gray-500 dark:text-gray-400">${records.length} records shown</p>${tableHtml}<div class="flex gap-2 mt-3"><button onclick="exportTrackingExcel()" class="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-bold btn-pop text-sm">📊 Excel</button><button onclick="exportTrackingPDF()" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold btn-pop text-sm">📄 PDF</button></div></div>`;
   window.currentTrackingData = { type, title, records, summary, flags };
 }
 

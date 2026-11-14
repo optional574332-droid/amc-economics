@@ -5,7 +5,7 @@
 let teacherDirCache = null;
 let teacherDirLoading = false;
 try {
-  const saved = localStorage.getItem('amc_teacher_dir_cache');
+  const saved = localStorage.getItem('amc_teacher_dir_cache_v2');
   if (saved) teacherDirCache = JSON.parse(saved);
 } catch (e) { teacherDirCache = null; }
 
@@ -91,7 +91,7 @@ function renderTeacherDirectory() {
       wa ? `<a href="https://wa.me/${attrEsc(wa)}" target="_blank" rel="noopener" class="tbtn tbtn-wa">💬 WhatsApp</a>` : '',
       t.email ? `<a href="mailto:${attrEsc(t.email)}" class="tbtn tbtn-mail">✉️ Email</a>` : ''
     ].filter(Boolean);
-    const hasInfo = t.mobile || t.whatsapp || t.email || bio;
+    const hasInfo = t.subject || t.bcs_batch || bio;
     return `
     <div class="tcard fade-in">
       <div class="tcard-head bg-gradient-to-br ${grad}">
@@ -143,7 +143,7 @@ async function loadTeacherDirectory(forceReload = false) {
   try {
     const data = await fetchTeacherDirectoryData(2);
     teacherDirCache = data;
-    try { localStorage.setItem('amc_teacher_dir_cache', JSON.stringify(data)); } catch (e) {}
+    try { localStorage.setItem('amc_teacher_dir_cache_v2', JSON.stringify(data)); } catch (e) {}
     renderTeacherDirectory();
   } catch (err) {
     if (teacherDirCache) {
