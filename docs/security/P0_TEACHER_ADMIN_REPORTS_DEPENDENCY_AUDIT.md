@@ -45,8 +45,9 @@ The existing Production audit recorded permissive SELECT policies (`students_rea
 
 ### P0 — Reports directly read student and attendance data
 - File: `js/reports.js`, around lines 304, 312, 496 and 509.
-- Admin/teacher report code directly fetches student lists and individual students' attendance rows. The exact permitted scope differs by report type.
-- Required replacement: separate server-side report functions with explicit admin or teacher-token authorization, bounded date ranges, pagination and only necessary fields. Do not use one generic RPC that accepts arbitrary student IDs.
+- Admin Attendance and Individual Reports directly read student and attendance rows. Repository navigation confirms these report tabs are inside the Admin panel; the Student Dashboard has a separate token-based flow in `js/student.js` and does not call `loadIndividualReport()`.
+- The P0 migration therefore keeps direct report-table reads available only to authenticated Admins and makes `get_held_sessions()` Admin-only. This preserves Admin Individual Report without exposing the helper to anonymous callers.
+- Teacher report paths are handled separately by the token-validated `t_teacher_attendance_records` RPC. Do not create a generic RPC accepting arbitrary student IDs.
 
 ### P0 — Admin student management relies on direct table operations
 - File: `js/people.js`, around lines 261, 362–364, 392, 414, 475, 502, 568, 587 and 601.
@@ -182,7 +183,15 @@ No Production SQL was applied; no merge or deployment was performed. Runtime tes
 - `get_student_exam_schedule` returns only schedules explicitly marked published and filtered by the requested class/session year.
 - `get_session_by_pin` returns metadata only for an exact active PIN; see the PIN brute-force limitation above.
 - `get_gps_attendance_report` requires either an authenticated Admin (`is_admin()`) or a valid teacher token and limits date windows to 93 days. Teacher access is restricted to their own/assigned courses, but the result includes precise coordinates; review whether teacher-level GPS coordinate access is intended before any future permission expansion.
-- `get_teacher_directory` returns staff contact fields (including mobile, WhatsApp and email) to anon. No use was found in the reviewed current frontend files; treat this as a privacy review item and verify whether an external/public directory intentionally consumes it before revoking or narrowing it.
+- `get_teacher_directory` is used by `js/directory.js` for the public Faculty Directory. Its Production definition returned mobile, WhatsApp and email to anon. The branch migration `20261114170000_public_teacher_directory_privacy.sql` retains the public directory but returns only name, designation, subject, BCS batch, biography and active status; phone, WhatsApp and email are omitted. The directory cache key is versioned so old cached contact fields are not rendered after the frontend update.
 - `t_today_summary` requires a valid teacher token but returns department-wide session counts and scheduled-course summary rather than only the caller's sessions. It does not return student names, but its broad scope should be confirmed against the intended Teacher dashboard design.
 - `is_admin` returns only a boolean based on the authenticated Supabase user and does not expose student data.
 - The `student_mark_attendance_v4` write RPC validates the active PIN and class/year/session-year membership, but its Production definition does not also check `is_archived = false`. This is a consistency hardening item to address separately after checking the archive workflow; do not alter attendance-write behavior as part of the read-access migration without a dedicated review.
+
+## Follow-up checkpoint — Public directory and report dependency review (2026-11-14)
+
+- Verified from `index.html` and `js/reports.js` that Attendance and Individual report tabs are Admin-panel features. `js/student.js` uses the separate Student login/dashboard RPC flow and does not call `loadIndividualReport()`.
+- The existing Admin-only `get_held_sessions()` restriction therefore preserves the Admin Individual Report dependency; it does not require a new public student report endpoint.
+- Confirmed `js/directory.js` calls `get_teacher_directory()` for the public Faculty Directory. Rather than disable the directory, the new migration keeps its public availability but omits personal mobile, WhatsApp and email fields. Name, designation, subject, BCS batch, biography and active status remain available.
+- Updated the frontend directory cache key to `amc_teacher_dir_cache_v2` so previously cached contact details are not reused by the updated directory UI.
+- Branch-only changes. No Production SQL, merge or deployment was performed. Static review only; the new SQL migration and browser directory behavior have not been runtime-tested.
