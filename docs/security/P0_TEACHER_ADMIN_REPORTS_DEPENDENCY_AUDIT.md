@@ -109,3 +109,20 @@ Static branch checks were run for both Teacher Live Report and Teacher Attendanc
 Remaining Teacher direct reads identified in the audit (manual attendance/student lookup and device tracking) have not yet been migrated. Admin and general Reports direct reads also remain. The public `att_read USING (true)` policy and `anon` SELECT grant remain unchanged until dependent workflows are migrated.
 
 No Production SQL was applied; no merge or deployment was performed. Runtime testing was not performed.
+
+
+## Implementation checkpoint — Teacher Device Tracking (2026-11-14)
+
+Added on the isolated branch only:
+
+- `supabase/migrations/20261114140000_secure_teacher_device_tracking.sql` adds `t_teacher_tracking_students` and `t_teacher_tracking_records`.
+- Both RPCs validate the active teacher token through `_teacher_id_from_token`, use an empty `search_path`, revoke default PUBLIC execution, and grant execution only to the API roles that call the RPC with a token.
+- Per the department's explicit choice, any active teacher may search tracking information across all department students. The RPC returns only the fields used by the existing tracking interface; GPS coordinates and accuracy fields are not returned.
+- Student search is limited to 50 matches. Tracking records are limited to the latest 500 matches, return total count/truncation metadata, and date ranges are limited to 366 days. The interface warns when the 500-row cap is reached.
+- `js/teacher.js` now uses these RPCs for Device ID and student roll/registration tracking instead of direct reads from `students` and `attendance_records`. Existing table display, suspicious-activity analysis, and Excel/PDF export data shape are retained.
+
+Static checks confirmed the two RPC calls are wired in the frontend, direct table reads are absent from the Device Tracking functions, token validation and result limits are present, and no GPS-coordinate columns are selected. This does not constitute SQL execution, browser runtime testing, or a security penetration test.
+
+Remaining direct Teacher reads still include manual-attendance student lookup and fallback resolution. Admin and general Reports direct reads also remain. The public `att_read USING (true)` policy and `anon` SELECT grant have intentionally not been removed because other workflows still depend on direct table access.
+
+No Production SQL was applied; no merge or deployment was performed. Runtime testing was not performed.
