@@ -93,3 +93,19 @@ Static branch checks passed for: token validation, session/course authorization,
 **Not yet closed:** the Production table-level `anon` SELECT grant and `att_read USING (true)` policy remain in place. Other Teacher/Admin/Reports screens still contain direct table reads, so removing those grants/policies before migrating their dependencies could break existing workflows. This Live Report change is therefore a scoped first step, not a complete closure of the P0 public-read exposure.
 
 No Production SQL was applied. No merge or deployment was performed. Runtime behavior was not tested.
+
+## Implementation checkpoint — Teacher attendance reports (2026-11-14)
+
+Added on the isolated branch:
+
+- `supabase/migrations/20261114130000_teacher_attendance_report_secure_rpc.sql` introduces `t_teacher_attendance_records(p_token, p_session_ids)`.
+- The RPC validates the teacher token and returns rows only from sessions owned by that teacher, or the teacher's own Bulk rows in an approved course they teach. It does not return another teacher's PIN/manual roster from a shared session.
+- The RPC accepts at most 25 session IDs per call and caps each response at 10,000 rows with a truncation indicator.
+- `js/teacher.js` now fetches Teacher Attendance Report rows in 25-session batches through this RPC instead of directly selecting `attendance_records`. The existing shared-session client filter remains as defense in depth.
+- A truncated response is surfaced as a prompt to narrow the report date range rather than silently displaying incomplete data.
+
+Static branch checks were run for both Teacher Live Report and Teacher Attendance Report: scoped RPC calls are present, direct `attendance_records` reads are absent from those two report functions, token checks and ownership rules are present in the migration drafts, and result bounds/error handling are present.
+
+Remaining Teacher direct reads identified in the audit (manual attendance/student lookup and device tracking) have not yet been migrated. Admin and general Reports direct reads also remain. The public `att_read USING (true)` policy and `anon` SELECT grant remain unchanged until dependent workflows are migrated.
+
+No Production SQL was applied; no merge or deployment was performed. Runtime testing was not performed.
