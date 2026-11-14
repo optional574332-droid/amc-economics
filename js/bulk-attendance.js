@@ -70,39 +70,28 @@ async function loadBulkAttendanceList() {
   area.innerHTML = '<p class="text-center py-5 text-gray-500">Loading student list…</p>';
 
   try {
-    const students = await fetchAll((from, to) => db
-      .from('students')
-      .select('id, name, class_roll, reg_no, session, is_irregular, year, session_year')
-      .eq('year', year)
-      .eq('session_year', sessionYear)
-      .eq('status', 'active')
-      .range(from, to));
+    // Token-validated RPC (the students / attendance_records tables are not read directly).
+    const { data: ctx, error: ctxError } = await db.rpc('t_bulk_attendance_context', {
+      p_token: currentTeacher.token,
+      p_year: year,
+      p_course_code: courseCode,
+      p_session_year: sessionYear,
+      p_date: date
+    });
+    if (ctxError) throw ctxError;
+    if (!ctx?.ok) throw new Error(ctx?.message || 'Could not load the student list.');
+    if (ctx.truncated) throw new Error('Student list is too large to load.');
 
+    const students = ctx.students || [];
     if (!students.length) {
       area.innerHTML = '<p class="text-center py-6 text-gray-500">No active students found for this class/session year.</p>';
       return;
     }
 
-    // Read every session for this exact class/course/date so PIN, Manual and
-    // Bulk records are all locked, including sessions opened by another assigned teacher.
-    const { data: sessions, error: sessionError } = await db.from('attendance_sessions')
-      .select('id, teacher_id, created_at')
-      .eq('year', year)
-      .eq('course_code', courseCode)
-      .eq('date', date)
-      .eq('session_year', sessionYear)
-      .order('created_at', { ascending: false });
-    if (sessionError) throw sessionError;
-
-    const sessionIds = (sessions || []).map(s => s.id);
-    let records = [];
-    if (sessionIds.length) {
-      const result = await db.from('attendance_records')
-        .select('student_id, attendance_source, marked_by, status')
-        .in('session_id', sessionIds);
-      if (result.error) throw result.error;
-      records = result.data || [];
-    }
+    // Every existing record for this exact class/course/date (PIN, Manual and Bulk)
+    // is returned so those students stay locked, including sessions opened by another teacher.
+    const sessions = ctx.session_id ? [{ id: ctx.session_id }] : [];
+    const records = ctx.records || [];
 
     // Reuse the latest existing class/course/date session, regardless of
     // which assigned teacher opened it. This keeps one held-class session.

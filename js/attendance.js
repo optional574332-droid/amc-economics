@@ -202,7 +202,7 @@ async function submitPinRequest() {
       clearPinBoxes();
       // Fire and forget — don't block UI
       enrichPinSession(currentPinSession).catch(() => {});
-      cacheStudentsFor(currentPinSession.year, currentPinSession.session_year).catch(() => {});
+      cacheStudentsFor(currentPinSession.year, currentPinSession.session_year, { pin: currentPinSession.pin }).catch(() => {});
       showAttendanceForm();
     }, 250);
 
@@ -311,11 +311,17 @@ async function loadStudentSuggestions(query) {
     return;
   }
   try {
-    const cols = 'id, name, class_roll, reg_no, session, is_irregular';
-    let { data: hit } = await db.from('students').select(cols).eq('year', s.year).eq('session_year', s.session_year).eq('status', 'active').or(rollFilter(q, false)).limit(5);
-    if (!hit || !hit.length) {
-      const r = await db.from('students').select(cols).eq('year', s.year).eq('session_year', s.session_year).eq('status', 'active').or(rollFilter(q, true)).limit(10);
-      hit = r.data || [];
+    const { data: exact, error: exactError } = await db.rpc('pin_student_lookup', {
+      p_pin: s.pin, p_query: q, p_partial: false
+    });
+    if (exactError) throw exactError;
+    let hit = exact?.ok ? (exact.students || []) : [];
+    if (!hit.length) {
+      const { data: partial, error: partialError } = await db.rpc('pin_student_lookup', {
+        p_pin: s.pin, p_query: q, p_partial: true
+      });
+      if (partialError) throw partialError;
+      hit = partial?.ok ? (partial.students || []) : [];
     }
     renderSuggestions(hit);
   } catch (err) { console.error('Suggestion error:', err); renderSuggestions([]); }
@@ -378,14 +384,21 @@ async function findAndSubmit() {
       student = all.find(st => String(st.class_roll) === roll || String(st.reg_no) === roll);
     }
   } else {
-    const cols = 'id, name, class_roll, reg_no, session, is_irregular';
-    const { data: exact } = await db.from('students').select(cols).eq('year', s.year).eq('session_year', s.session_year).eq('status', 'active').or(rollFilter(roll, false)).limit(5);
-    if (exact && exact.length > 1) { renderSuggestions(exact); toastInfo('Several students match — please pick yours'); return; }
-    if (exact && exact.length === 1) student = exact[0];
+    const { data: exact, error: exactError } = await db.rpc('pin_student_lookup', {
+      p_pin: s.pin, p_query: roll, p_partial: false
+    });
+    if (exactError) throw exactError;
+    const exactRows = exact?.ok ? (exact.students || []) : [];
+    if (exactRows.length > 1) { renderSuggestions(exactRows); toastInfo('Several students match — please pick yours'); return; }
+    if (exactRows.length === 1) student = exactRows[0];
     else {
-      const { data: part } = await db.from('students').select(cols).eq('year', s.year).eq('session_year', s.session_year).eq('status', 'active').or(rollFilter(roll, true)).limit(2);
-      if (part && part.length === 1) student = part[0];
-      else if (part && part.length > 1) { renderSuggestions(part); toastInfo('Several students match — please pick yours'); return; }
+      const { data: partial, error: partialError } = await db.rpc('pin_student_lookup', {
+        p_pin: s.pin, p_query: roll, p_partial: true
+      });
+      if (partialError) throw partialError;
+      const part = partial?.ok ? (partial.students || []) : [];
+      if (part.length === 1) student = part[0];
+      else if (part.length > 1) { renderSuggestions(part.slice(0, 2)); toastInfo('Several students match — please pick yours'); return; }
     }
   }
   if (!student) {

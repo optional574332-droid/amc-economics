@@ -53,6 +53,11 @@ async function logout() {
   if (liveReportInterval) { clearInterval(liveReportInterval); liveReportInterval = null; }
   if (scheduledBannerInterval) { clearInterval(scheduledBannerInterval); scheduledBannerInterval = null; }
   const sBanner = document.getElementById('scheduledClassBannerContainer'); if (sBanner) sBanner.innerHTML = '';
+  if (typeof currentStudentToken !== 'undefined' && currentStudentToken) {
+    try { await db.rpc('student_logout_secure', { p_student_token: currentStudentToken }); }
+    catch (e) { console.warn('Student token revocation deferred to expiry:', e); }
+  }
+  if (typeof currentStudentToken !== 'undefined') currentStudentToken = null;
   await db.auth.signOut();
   currentTeacher = null; currentStudent = null;
   currentRoutineData = null; currentRoutineContext = null;
