@@ -4,6 +4,7 @@
 create or replace function public.t_teacher_manual_student_lookup(
   p_token text,
   p_year text,
+  p_course_code text,
   p_session_year integer,
   p_query text,
   p_include_name boolean default false
@@ -27,6 +28,7 @@ begin
   end if;
 
   if p_year is null or p_year = ''
+     or p_course_code is null or p_course_code = ''
      or p_session_year is null
      or v_query = ''
      or length(v_query) > 80 then
@@ -38,6 +40,7 @@ begin
     from public.teacher_courses tc
     where tc.teacher_id = v_teacher_id
       and tc.year = p_year
+      and tc.course_code = p_course_code
   ) then
     return jsonb_build_object('ok', false, 'message', 'You are not assigned to this class.');
   end if;
@@ -52,8 +55,6 @@ begin
         'session', x.session,
         'is_irregular', x.is_irregular
       ) order by
-        case when x.class_roll ~ '^[0-9]+$' then 0 else 1 end,
-        case when x.class_roll ~ '^[0-9]+$' then x.class_roll::numeric end,
         x.class_roll
     ),
     '[]'::jsonb
@@ -77,10 +78,7 @@ begin
             or position(lower(v_query) in lower(coalesce(s.name, ''))) > 0
           ))
       )
-    order by
-      case when lower(coalesce(s.class_roll, '')) = lower(v_query)
-             or lower(coalesce(s.reg_no, '')) = lower(v_query) then 0 else 1 end,
-      s.class_roll
+    order by s.class_roll
     limit v_limit
   ) x;
 
@@ -88,5 +86,5 @@ begin
 end
 $function$;
 
-revoke all on function public.t_teacher_manual_student_lookup(text, text, integer, text, boolean) from public;
+revoke all on function public.t_teacher_manual_student_lookup(text, text, text, integer, text, boolean) from public;
 grant execute on function public.t_teacher_manual_student_lookup(text, text, integer, text, boolean) to anon, authenticated;
