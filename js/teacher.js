@@ -623,22 +623,30 @@ async function loadTeacherAttendanceReport() {
 
   if (!sessions.length) { area.innerHTML = '<p class="text-gray-400 text-center py-4">No classes in this period</p>'; return; }
   const sIds = sessions.map(s => s.id);
-  let recordResult = await db.from('attendance_records')
-    .select('id, session_id, student_id, status, marked_at, device_id, marked_by, attendance_source, students(name, class_roll, reg_no)')
-    .in('session_id', sIds);
-  if (recordResult.error && /attendance_source|column .* does not exist|schema cache/i.test(recordResult.error.message || '')) {
-    recordResult = await db.from('attendance_records')
-      .select('id, session_id, student_id, status, marked_at, device_id, marked_by, students(name, class_roll, reg_no)')
-      .in('session_id', sIds);
+  const reportRecords = [];
+  for (let i = 0; i < sIds.length; i += 25) {
+    const { data: reportResult, error: reportError } = await db.rpc('t_teacher_attendance_records', {
+      p_token: currentTeacher.token,
+      p_session_ids: sIds.slice(i, i + 25)
+    });
+    if (reportError || !reportResult?.ok) {
+      area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(reportResult?.message || reportError?.message || 'Could not load attendance records')}</p>`;
+      return;
+    }
+    if (reportResult.truncated) {
+      area.innerHTML = '<p class="text-red-500 text-center py-4">এই রিপোর্টে রেকর্ডের সংখ্যা বেশি। অনুগ্রহ করে তারিখের পরিসর ছোট করুন।</p>';
+      return;
+    }
+    if (Array.isArray(reportResult.records)) reportRecords.push(...reportResult.records);
   }
-  if (recordResult.error) { area.innerHTML = `<p class="text-red-500 text-center py-4">❌ ${escapeHtml(recordResult.error.message)}</p>`; return; }
+
   const byS = {};
   sessions.forEach(s => { byS[s.id] = { session: s, records: [] }; });
-  (recordResult.data || []).forEach(r => {
+  reportRecords.forEach(r => {
     const group = byS[r.session_id];
     if (!group) return;
-    // For a shared session owned by another teacher, show only this teacher's
-    // own Bulk rows; do not expose the other teacher's PIN/manual roster here.
+    // The RPC already enforces owner/shared-bulk authorization; retain this
+    // client-side filter as defense in depth for shared sessions.
     if (group.session.teacher_id !== currentTeacher.id &&
         !(r.marked_by === currentTeacher.id && r.attendance_source === 'bulk')) return;
     group.records.push(r);
