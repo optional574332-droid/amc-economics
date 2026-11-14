@@ -312,3 +312,8 @@ $function$;
 
 revoke all on function public.get_held_sessions(text, integer) from public, anon;
 grant execute on function public.get_held_sessions(text, integer) to authenticated;
+
+-- Legacy teacher live-report RPC has no session-ownership check and is no longer
+-- called by the current frontend (which uses t_live_attendance instead).
+-- Disable it for every API role to prevent cross-teacher session disclosure.
+revoke all on function public.t_session_students(text, uuid) from public, anon, authenticated;
