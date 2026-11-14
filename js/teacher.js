@@ -954,17 +954,22 @@ async function searchByDeviceId() {
   if (!dateFilter) return;
   showGlobalLoader();
   try {
-    let query = db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).ilike('device_id', `${deviceId}%`);
-    if (dateFilter.from) query = query.gte('marked_at', `${dateFilter.from}T00:00:00+06:00`).lt('marked_at', `${dateFilter.nextDay}T00:00:00+06:00`);
-    const { data: records, error } = await query.order('marked_at', { ascending: false }).limit(500);
-    if (error) return toastError(error.message);
-    if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No attendance found for this device</p></div>`; return; }
+    const { data, error } = await db.rpc('t_teacher_tracking_records', {
+      p_token: currentTeacher.token,
+      p_device_prefix: deviceId,
+      p_student_id: null,
+      p_from: dateFilter.from || null,
+      p_to: dateFilter.to || null
+    });
+    if (error || !data?.ok) return toastError(data?.message || error?.message || 'Tracking search failed');
+    const records = data.records || [];
+    if (!records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No attendance found for this device</p></div>`; return; }
     const uniqueStudents = new Set(records.map(r => r.students?.class_roll)).size;
     const uniqueCourses = new Set(records.map(r => r.attendance_sessions?.course_code)).size;
     const firstDate = records[records.length - 1]?.marked_at;
     const lastDate = records[0]?.marked_at;
     const flags = detectSuspicious(records);
-    renderTrackingResult({ type: 'device', title: `Device: ${deviceId}`, records, summary: { totalAttendances: records.length, uniqueStudents, uniqueCourses, firstDate, lastDate }, flags });
+    renderTrackingResult({ type: 'device', title: `Device: ${deviceId}`, records, summary: { totalAttendances: data.count ?? records.length, uniqueStudents, uniqueCourses, firstDate, lastDate }, flags, truncated: data.truncated });
   } finally { hideGlobalLoader(); }
 }
 
@@ -975,9 +980,13 @@ async function searchByStudentRoll() {
   if (!dateFilter) return;
   showGlobalLoader();
   try {
-    const { data: students, error: sErr } = await db.from('students').select('id, name, class_roll, reg_no, session, session_year, year').or(`class_roll.eq.${roll},reg_no.eq.${roll}`).order('session_year', { ascending: false });
-    if (sErr) return toastError(sErr.message);
-    if (!students || !students.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No student with this roll</p></div>`; return; }
+    const { data, error } = await db.rpc('t_teacher_tracking_students', {
+      p_token: currentTeacher.token,
+      p_query: roll
+    });
+    if (error || !data?.ok) return toastError(data?.message || error?.message || 'Student search failed');
+    const students = data.students || [];
+    if (!students.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-red-50 dark:bg-red-900/30 p-4 rounded-xl text-center"><p class="text-sm text-red-700 dark:text-red-300">❌ No student with this roll</p></div>`; return; }
     if (students.length > 1) {
       const area = document.getElementById('trackingResultArea');
       area.innerHTML = `<div class="bg-amber-50 dark:bg-amber-900/30 border-2 border-amber-300 dark:border-amber-700 rounded-xl p-4"><h4 class="font-bold text-amber-700 dark:text-amber-300 mb-3">⚠️ ${students.length} students found — pick one</h4><div class="space-y-2">${students.map(s => `<button class="student-pick-btn w-full bg-white dark:bg-gray-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-3 rounded-lg text-left transition btn-pop" data-id="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}"><div class="flex justify-between items-center"><div><p class="font-bold text-gray-800 dark:text-white">${escapeHtml(s.name)}</p><p class="text-xs text-gray-500 dark:text-gray-400 num-display">Roll: ${escapeHtml(s.class_roll)} · Reg: ${escapeHtml(s.reg_no || '-')}</p></div><div class="text-right"><p class="text-sm font-bold text-indigo-600 dark:text-indigo-300 num-display">${escapeHtml(s.session_year)}</p><p class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(s.year)}</p></div></div></button>`).join('')}</div></div>`;
@@ -991,17 +1000,25 @@ async function searchByStudentRoll() {
 async function loadStudentTracking(studentId, studentName) {
   const dateFilter = getTrackingDateFilter();
   if (!dateFilter) return;
-  let query = db.from('attendance_records').select(`id, marked_at, device_id, status, student_id, students(name, class_roll, reg_no), attendance_sessions(course_code, date)`).eq('student_id', studentId);
-  if (dateFilter.from) query = query.gte('marked_at', `${dateFilter.from}T00:00:00+06:00`).lt('marked_at', `${dateFilter.nextDay}T00:00:00+06:00`);
-  const { data: records, error: rErr } = await query.order('marked_at', { ascending: false }).limit(500);
-  if (rErr) return toastError(rErr.message);
-  if (!records || !records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center"><p class="text-sm text-blue-700 dark:text-blue-300">ℹ️ No attendance found for ${escapeHtml(studentName)}</p></div>`; return; }
-  const uniqueDevices = new Set(records.map(r => r.device_id)).size;
-  const firstDate = records[records.length - 1]?.marked_at;
-  const lastDate = records[0]?.marked_at;
-  const flags = detectSuspicious(records);
-  const student = records[0].students;
-  renderTrackingResult({ type: 'student', title: `Student: ${studentName} (Roll: ${student?.class_roll})`, records, summary: { totalAttendances: records.length, uniqueDevices, firstDate, lastDate, student }, flags });
+  showGlobalLoader();
+  try {
+    const { data, error } = await db.rpc('t_teacher_tracking_records', {
+      p_token: currentTeacher.token,
+      p_device_prefix: null,
+      p_student_id: studentId,
+      p_from: dateFilter.from || null,
+      p_to: dateFilter.to || null
+    });
+    if (error || !data?.ok) return toastError(data?.message || error?.message || 'Student tracking failed');
+    const records = data.records || [];
+    if (!records.length) { document.getElementById('trackingResultArea').innerHTML = `<div class="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-xl text-center"><p class="text-sm text-blue-700 dark:text-blue-300">ℹ️ No attendance found for ${escapeHtml(studentName)}</p></div>`; return; }
+    const uniqueDevices = new Set(records.map(r => r.device_id)).size;
+    const firstDate = records[records.length - 1]?.marked_at;
+    const lastDate = records[0]?.marked_at;
+    const flags = detectSuspicious(records);
+    const student = records[0].students;
+    renderTrackingResult({ type: 'student', title: `Student: ${studentName} (Roll: ${student?.class_roll})`, records, summary: { totalAttendances: data.count ?? records.length, uniqueDevices, firstDate, lastDate, student }, flags, truncated: data.truncated });
+  } finally { hideGlobalLoader(); }
 }
 
 function renderTrackingResult({ type, title, records, summary, flags }) {
