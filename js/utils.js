@@ -294,6 +294,8 @@ function queueAttendance(pin, roll, studentId, geo) {
 }
 
 let isSyncingOffline = false;
+// A PIN normally lives 45 minutes; older queued items can never be accepted again.
+const OFFLINE_ITEM_MAX_AGE_MS = 60 * 60 * 1000;
 async function syncOfflineQueue() {
   if (isSyncingOffline) return;
   const q = getOfflineQueue();
@@ -301,21 +303,30 @@ async function syncOfflineQueue() {
   isSyncingOffline = true;
   try {
     const remaining = [];
-    let synced = 0;
+    let synced = 0, dropped = 0, stop = false;
     for (const item of q) {
+      if (stop) { remaining.push(item); continue; }
       try {
         // Keep legacy queue entries untouched for manual review; never sync via v2/v3.
         if (!item.studentId || typeof markAttendanceGeo !== 'function') {
           remaining.push(item);
           continue;
         }
+        // Expired PIN: sending it only adds failed-attempt counts to this device.
+        if (Date.now() - (item.timestamp || 0) > OFFLINE_ITEM_MAX_AGE_MS) { dropped++; continue; }
         const { data, error } = await markAttendanceGeo(item.pin, item.studentId, item.deviceId, item.geo);
-        if (error || !data?.ok) { remaining.push(item); } else { synced++; }
+        if (error) { remaining.push(item); continue; }          // network problem: retry later
+        if (data?.ok) { synced++; continue; }
+        const msg = String(data?.message || '');
+        if (/too many/i.test(msg)) { remaining.push(item); stop = true; continue; }  // device temporarily locked: stop sending
+        if (/already marked/i.test(msg)) continue;                // already recorded earlier: nothing left to do
+        dropped++;                                                // invalid/expired PIN, wrong class or GPS rejection: retrying cannot succeed
       } catch (e) { remaining.push(item); }
     }
     const added = getOfflineQueue().slice(q.length);
     saveOfflineQueue(remaining.concat(added));
     if (synced > 0) toastSuccess(`${synced} attendances synced`);
+    if (dropped > 0) toastWarning(`${dropped} offline attendance(s) could not be submitted (PIN expired or rejected). Please inform your teacher.`);
     updateOnlineStatus();
   } finally { isSyncingOffline = false; }
 }

@@ -488,7 +488,9 @@ async function confirmAndSubmit() {
     if (gcfg.enabled) {
       const locationResult = await getPositionDetailed();
       geo = locationResult.position;
-      if (!geo) {
+      // 'block' mode needs a location. In 'log' mode attendance is still accepted and the record is
+      // marked "No location" on the server, so students with GPS problems are not locked out.
+      if (!geo && gcfg.mode === 'block') {
         showGeoAttendanceWarning(locationResult.error);
         return;
       }
@@ -516,6 +518,7 @@ async function confirmAndSubmit() {
     }
     pendingConfirmation = null;
     showSuccessAndNext(data.student_name);
+    if (data.geo_status === 'no_location') toastWarning('Attendance saved, but your location could not be captured.');
   } finally { hideGlobalLoader(); }
 }
 

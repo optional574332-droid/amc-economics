@@ -4,10 +4,10 @@
 // Updated: 2026-11-05
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v16';
-const STATIC_CACHE  = 'amc-static-v16';
-const DYNAMIC_CACHE = 'amc-dynamic-v16';
-const CDN_CACHE     = 'amc-cdn-v16';
+const CACHE_NAME    = 'amc-attendance-v19';
+const STATIC_CACHE  = 'amc-static-v19';
+const DYNAMIC_CACHE = 'amc-dynamic-v19';
+const CDN_CACHE     = 'amc-cdn-v19';
 
 const urlsToCache = [
   './',
@@ -113,6 +113,8 @@ self.addEventListener('fetch', event => {
   
   // Supabase API কল ক্যাশ করা যাবে না
   if (url.includes('.supabase.co')) return;
+  // Map tiles are fetched live and never stored (would fill the cache quickly)
+  if (url.includes('tile.openstreetmap.org')) return;
   
   // Chrome extension বাদ
   if (url.startsWith('chrome-extension://')) return;

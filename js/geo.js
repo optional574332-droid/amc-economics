@@ -3,6 +3,12 @@
    Student attendance সবসময় v4 RPC দিয়ে জমা হয়; fallback নেই */
 
 let geoCfg = { enabled: false, mode: 'log', at: 0 };
+// Last server setting is remembered so an offline phone still knows whether GPS is expected
+// (the server ignores and never stores coordinates while Geo is OFF).
+try {
+  const _savedGeo = JSON.parse(localStorage.getItem('amc_geo_cfg') || 'null');
+  if (_savedGeo && typeof _savedGeo.enabled === 'boolean') geoCfg = { enabled: _savedGeo.enabled, mode: _savedGeo.mode || 'log', at: 0 };
+} catch (e) { /* ignore */ }
 
 async function getGeoConfig(forceRefresh = false) {
   if (!forceRefresh && Date.now() - geoCfg.at < 5 * 60 * 1000) return geoCfg;
@@ -10,6 +16,7 @@ async function getGeoConfig(forceRefresh = false) {
     const res = await Promise.race([db.rpc('get_geo_config'), new Promise(r => setTimeout(() => r({ error: 'timeout' }), 3000))]);
     if (!res.error && res.data) {
       geoCfg = { enabled: !!res.data.enabled, mode: res.data.mode || 'log', at: Date.now() };
+      try { localStorage.setItem('amc_geo_cfg', JSON.stringify({ enabled: geoCfg.enabled, mode: geoCfg.mode })); } catch (e) { /* ignore */ }
     } else if (forceRefresh) {
       // Fail closed: if the current server setting cannot be confirmed, do not request GPS.
       return { enabled: false, mode: geoCfg.mode || 'log', at: Date.now() };

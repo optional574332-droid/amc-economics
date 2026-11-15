@@ -20,13 +20,14 @@ function showReportTab(tab) {
         </div>
         ${yr('gpsYear')}
         <div class="flex gap-2 mt-3 flex-wrap">
-          <button onclick="loadGpsAttendanceReport()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl btn-pop">🔍 Search</button>
+          <button onclick="loadAdminGpsAttendanceReport()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl btn-pop">🔍 Search</button>
           <button onclick="exportGpsAttendanceExcel()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl btn-pop">📊 Excel</button>
+          <button onclick="toggleGpsMap()" class="bg-sky-600 text-white px-4 py-2 rounded-xl btn-pop">🗺️ Map</button>
         </div>
       </div>
       <div id="gpsAttendanceReportArea"></div>
     </div>`;
-    loadGpsAttendanceReport();
+    loadAdminGpsAttendanceReport();
   } else if (tab === 'attendance') {
     el.innerHTML = `<div class="space-y-3"><div class="${box}"><div class="flex gap-2 flex-wrap mb-3"><select id="arSessionYear" class="${inp}"><option value="">Session year</option></select>${yr('arYear')}<button onclick="loadAttendanceReport()" class="bg-amber-600 text-white px-4 py-2 rounded-xl btn-pop">🔍</button></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arAll" checked onchange="arToggleDates()"> All dates</label><input type="date" id="arFrom" disabled class="${inp}"><input type="date" id="arTo" disabled class="${inp}"></div><div class="flex gap-2 flex-wrap items-center mb-3"><label class="flex items-center gap-2 text-xs font-semibold dark:text-white"><input type="checkbox" id="arLow" onchange="renderAttendanceReport()"> Show only students below ${PASS_PCT}%</label><button id="sortModeBtn" onclick="toggleSortMode()" class="text-sm px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-100 font-semibold">🔢 Roll</button></div><div class="flex gap-2">${btn('exportAttendanceExcel()', '📊 Excel', 'emerald')}${btn('exportAttendancePDF()', '📄 PDF', 'red')}</div></div><div id="attendanceReportArea"></div></div>`;
     rsBind('arSessionYear', 'arYear');
@@ -564,47 +565,164 @@ async function exportIndividualPDF() {
 }
 
 
-// GPS Attendance Tracking — coordinates are served only by the authorized database RPC.
-let currentGpsAttendanceRows = [];
-async function loadGpsAttendanceReport() {
+// GPS Attendance Tracking (Admin) - coordinates are served only by the authorized database RPCs.
+let currentGpsAttendanceRows = [];   // every loaded row
+let currentGpsFlags = {};            // attendance_id -> [{ flag, detail }]
+let gpsCenter = null;                // { lat, lng, radius } from the Geo settings
+let gpsMap = null, gpsMapOpen = false;
+let gpsStatusFilter = 'all', gpsTextFilter = '', gpsLoadSeq = 0, gpsShortDays = [];
+
+function gpsListDays(from, to) {
+  const out = [], d = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
+  while (d <= end) { out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 1); }
+  return out;
+}
+
+async function loadAdminGpsAttendanceReport() {
   const area = document.getElementById('gpsAttendanceReportArea');
   if (!area) return;
   const from = document.getElementById('gpsFrom')?.value;
   const to = document.getElementById('gpsTo')?.value;
   const year = document.getElementById('gpsYear')?.value || null;
-  if (!from || !to || from > to) { area.innerHTML = '<p class="text-red-500">সঠিক তারিখ নির্বাচন করুন।</p>'; return; }
-  area.innerHTML = '<p class="text-center py-5 text-gray-500">⏳ GPS report loading...</p>';
-  const { data, error } = await db.rpc('get_gps_attendance_report', {
-    p_from: from, p_to: to, p_year: year, p_course_code: null,
-    p_session_year: null, p_teacher_token: null
+  if (!from || !to || from > to) { area.innerHTML = '<p class="text-red-500">Select a valid date range.</p>'; return; }
+  const days = gpsListDays(from, to);
+  if (days.length > 93) { area.innerHTML = '<p class="text-red-500">Maximum date range is 93 days.</p>'; return; }
+
+  if (gpsMap) { gpsMap.remove(); gpsMap = null; }
+  const seq = ++gpsLoadSeq;
+  gpsStatusFilter = 'all'; gpsTextFilter = ''; gpsShortDays = [];
+  area.innerHTML = '<p id="gpsProgress" class="text-center py-5 text-gray-500">⏳ GPS report loading...</p>';
+
+  const rows = [];
+  try {
+    // One request per day keeps each answer far below the API row limit, so no record is silently cut off.
+    for (let i = 0; i < days.length; i += 4) {
+      const chunk = days.slice(i, i + 4);
+      const results = await Promise.all(chunk.map(d => db.rpc('get_gps_attendance_report', {
+        p_from: d, p_to: d, p_year: year, p_course_code: null, p_session_year: null, p_teacher_token: null
+      })));
+      if (seq !== gpsLoadSeq) return;   // a newer search has started
+      results.forEach((res, k) => {
+        if (res.error) throw res.error;
+        const data = res.data || [];
+        if (data.length >= 1000) gpsShortDays.push(chunk[k]);
+        data.forEach(r => rows.push(r));
+      });
+      const pr = document.getElementById('gpsProgress');
+      if (pr) pr.textContent = '⏳ GPS report loading... ' + Math.min(i + 4, days.length) + '/' + days.length + ' days';
+    }
+  } catch (e) {
+    area.innerHTML = `<p class="text-red-500 p-3">❌ ${escapeHtml(e.message || String(e))}</p>`;
+    return;
+  }
+  rows.sort((a, b) => String(b.attendance_date).localeCompare(String(a.attendance_date))
+    || String(a.course_code).localeCompare(String(b.course_code))
+    || String(a.class_roll).localeCompare(String(b.class_roll), undefined, { numeric: true }));
+  currentGpsAttendanceRows = rows;
+
+  // Review flags and the college centre are optional extras: a failure here must never block the report.
+  currentGpsFlags = {};
+  try {
+    const fl = await db.rpc('admin_gps_attendance_flags', { p_from: from, p_to: to, p_year: year });
+    if (!fl.error) (fl.data || []).forEach(f => {
+      if (!currentGpsFlags[f.attendance_id]) currentGpsFlags[f.attendance_id] = [];
+      currentGpsFlags[f.attendance_id].push({ flag: f.flag, detail: f.detail });
+    });
+  } catch (e) { /* ignore */ }
+  gpsCenter = null;
+  try {
+    const g = await db.rpc('admin_get_geo_settings');
+    if (g.data && g.data.ok && g.data.lat != null && g.data.lng != null) {
+      gpsCenter = { lat: Number(g.data.lat), lng: Number(g.data.lng), radius: Number(g.data.radius_m) || 100 };
+    }
+  } catch (e) { /* ignore */ }
+  if (seq !== gpsLoadSeq) return;
+  renderGpsAdminView();
+}
+
+function gpsFlagText(id) {
+  const f = currentGpsFlags[id];
+  if (!f) return '';
+  return f.map(x => x.flag === 'shared_device'
+    ? '📱 Shared device (' + Number(x.detail) + ' students)'
+    : '📍 Same coordinates (' + Number(x.detail) + ' students)').join('<br>');
+}
+function gpsStatusColor(s) { return s === 'inside' ? '#059669' : s === 'outside' ? '#dc2626' : s === 'poor_accuracy' ? '#d97706' : '#6b7280'; }
+function gpsStatusName(s) { return s === 'inside' ? 'Inside' : s === 'outside' ? 'Outside' : s === 'poor_accuracy' ? 'Poor accuracy' : s === 'no_location' ? 'No location' : 'Not recorded'; }
+
+function gpsRowsFiltered() {
+  const q = gpsTextFilter.trim().toLowerCase();
+  return currentGpsAttendanceRows.filter(r => {
+    if (gpsStatusFilter === 'flagged') { if (!currentGpsFlags[r.attendance_id]) return false; }
+    else if (gpsStatusFilter === 'none') { if (r.geo_status != null) return false; }
+    else if (gpsStatusFilter !== 'all' && r.geo_status !== gpsStatusFilter) return false;
+    if (q) {
+      const hay = [r.student_name, r.class_roll, r.reg_no, r.course_code, r.teacher_name].map(v => String(v || '').toLowerCase()).join(' ');
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
-  if (error) { area.innerHTML = `<p class="text-red-500 p-3">❌ ${escapeHtml(error.message)}</p>`; return; }
-  currentGpsAttendanceRows = data || [];
-  if (!currentGpsAttendanceRows.length) { area.innerHTML = '<p class="text-gray-500 text-center py-5">এই সময়ের কোনো হাজিরা পাওয়া যায়নি।</p>'; return; }
-  const located = currentGpsAttendanceRows.filter(r => r.latitude != null && r.longitude != null).length;
-  const inside = currentGpsAttendanceRows.filter(r => r.geo_status === 'inside').length;
-  const outside = currentGpsAttendanceRows.filter(r => r.geo_status === 'outside').length;
-  const noLocation = currentGpsAttendanceRows.filter(r => r.geo_status === 'no_location').length;
-  const unlogged = currentGpsAttendanceRows.filter(r => r.geo_status == null).length;
-  const coordinatesMissing = currentGpsAttendanceRows.length - located;
+}
+
+function renderGpsAdminView() {
+  const area = document.getElementById('gpsAttendanceReportArea');
+  if (!area) return;
+  const all = currentGpsAttendanceRows;
+  if (!all.length) { area.innerHTML = '<p class="text-gray-500 text-center py-5">No attendance records found for this filter.</p>'; return; }
+  const cnt = s => all.filter(r => r.geo_status === s).length;
+  const none = all.filter(r => r.geo_status == null).length;
+  const flagged = all.filter(r => currentGpsFlags[r.attendance_id]).length;
+  const card = (n, label, cls) => `<div class="${cls} rounded-xl p-3"><b class="text-2xl num-display">${n}</b><p class="text-xs">${label}</p></div>`;
+  const chips = [['all', 'All'], ['inside', 'Inside'], ['outside', 'Outside'], ['poor_accuracy', 'Poor accuracy'], ['no_location', 'No location'], ['none', 'Not recorded'], ['flagged', 'Flagged']];
+  const warn = gpsShortDays.length
+    ? `<p class="text-xs bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded-lg p-2 mb-2">⚠️ These days returned 1000 rows (possible server limit), so they may be incomplete: ${escapeHtml(gpsShortDays.join(', '))}. Search a single class to see everything.</p>` : '';
   area.innerHTML = `
+    ${warn}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-center">
-      <div class="bg-slate-100 dark:bg-slate-700 rounded-xl p-3"><b class="text-2xl num-display">${currentGpsAttendanceRows.length}</b><p class="text-xs">মোট হাজিরা</p></div>
-      <div class="bg-emerald-50 dark:bg-emerald-900/30 rounded-xl p-3"><b class="text-2xl text-emerald-700 num-display">${located}</b><p class="text-xs">GPS পাওয়া গেছে</p></div>
-      <div class="bg-amber-50 dark:bg-amber-900/30 rounded-xl p-3"><b class="text-2xl text-amber-700 num-display">${outside}</b><p class="text-xs">কলেজের বাইরে</p></div>
-      <div class="bg-gray-100 dark:bg-gray-700 rounded-xl p-3"><b class="text-2xl num-display">${coordinatesMissing}</b><p class="text-xs">Map coordinates unavailable</p></div>
+      ${card(all.length, 'Total records', 'bg-slate-100 dark:bg-slate-700')}
+      ${card(cnt('inside'), 'Inside radius', 'bg-emerald-50 dark:bg-emerald-900/30')}
+      ${card(cnt('outside'), 'Outside radius', 'bg-red-50 dark:bg-red-900/30')}
+      ${card(cnt('poor_accuracy') + cnt('no_location'), 'Poor / No location', 'bg-amber-50 dark:bg-amber-900/30')}
     </div>
-    <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Inside radius: ${inside} · Outside radius: ${outside} · No location captured: ${noLocation} · GPS status not logged: ${unlogged}</p>
-    <div class="overflow-x-auto">
+    <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">GPS status not recorded (Geo was OFF or old records): ${none} · Flagged for review: ${flagged}</p>
+    <div class="flex flex-wrap gap-1 mb-2" id="gpsChips">
+      ${chips.map(([k, label]) => `<button data-gps-chip="${k}" onclick="setGpsFilter('${k}')" class="px-3 py-1 rounded-full text-xs font-semibold">${label}</button>`).join('')}
+    </div>
+    <input id="gpsTextInput" oninput="setGpsText(this.value)" placeholder="🔍 Search name / roll / reg / course" class="w-full border-2 rounded-xl p-2 mb-3 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
+    <div id="gpsMapBox" class="${gpsMapOpen ? '' : 'hidden'} mb-3">
+      <div id="gpsMapCanvas" style="height:380px" class="rounded-xl border dark:border-gray-600"></div>
+      <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-1" id="gpsMapNote"></p>
+    </div>
+    <div id="gpsTableBox"></div>
+    <p class="text-[11px] text-gray-500 mt-2">Flags are review hints, not proof: a classroom phone may be shared. GPS is device-reported and can be inaccurate or spoofed.</p>`;
+  renderGpsTable();
+  if (gpsMapOpen) refreshGpsMap();
+}
+
+function setGpsFilter(k) { gpsStatusFilter = k; renderGpsTable(); if (gpsMapOpen) refreshGpsMap(); }
+function setGpsText(v) { gpsTextFilter = v || ''; renderGpsTable(); if (gpsMapOpen) refreshGpsMap(); }
+
+function renderGpsTable() {
+  const box = document.getElementById('gpsTableBox');
+  if (!box) return;
+  document.querySelectorAll('[data-gps-chip]').forEach(b => {
+    const on = b.dataset.gpsChip === gpsStatusFilter;
+    b.className = 'px-3 py-1 rounded-full text-xs font-semibold ' + (on ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-600 dark:text-white');
+  });
+  const rows = gpsRowsFiltered();
+  if (!rows.length) { box.innerHTML = '<p class="text-gray-500 text-center py-4">No records match this filter.</p>'; return; }
+  const shown = rows.slice(0, 500);
+  box.innerHTML = `
+    <p class="text-xs text-gray-500 mb-1">Showing ${shown.length} of ${rows.length}${rows.length > shown.length ? ' (use the filters or Excel for all)' : ''}</p>
+    <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
       <table class="min-w-full text-xs border dark:border-gray-600">
-        <thead class="bg-gray-100 dark:bg-gray-700"><tr>
-          <th class="p-2 border">Date / Time</th><th class="p-2 border">Class / Course</th><th class="p-2 border">Roll / Reg</th><th class="p-2 border text-left">Student</th><th class="p-2 border">Distance</th><th class="p-2 border">Accuracy</th><th class="p-2 border">GPS Status</th><th class="p-2 border">Location</th>
+        <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr>
+          <th class="p-2 border">Date / Time</th><th class="p-2 border">Class / Course</th><th class="p-2 border">Roll / Reg</th><th class="p-2 border text-left">Student</th><th class="p-2 border">Distance</th><th class="p-2 border">Accuracy</th><th class="p-2 border">Status</th><th class="p-2 border">Flags</th><th class="p-2 border">Location</th>
         </tr></thead><tbody>
-        ${currentGpsAttendanceRows.map(r => {
+        ${shown.map(r => {
           const has = r.latitude != null && r.longitude != null;
           const map = has ? 'https://www.google.com/maps?q=' + encodeURIComponent(r.latitude + ',' + r.longitude) : '';
-          const label = r.geo_status === 'inside' ? 'Inside' : r.geo_status === 'outside' ? 'Outside' : r.geo_status === 'poor_accuracy' ? 'Poor accuracy' : r.geo_status === 'no_location' ? 'No location' : 'Not recorded';
-          const dt = r.marked_at ? new Date(r.marked_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '-';
+          const dt = r.marked_at ? new Date(r.marked_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-';
           return `<tr class="dark:text-white">
             <td class="p-2 border whitespace-nowrap">${escapeHtml(r.attendance_date)}<br>${dt}</td>
             <td class="p-2 border">${escapeHtml(r.class_year)}<br>${escapeHtml(r.course_code)}</td>
@@ -612,18 +730,76 @@ async function loadGpsAttendanceReport() {
             <td class="p-2 border">${escapeHtml(r.student_name || '-')}<br><span class="text-gray-500">${escapeHtml(r.teacher_name || '')}</span></td>
             <td class="p-2 border text-center">${r.geo_distance_m == null ? '-' : Number(r.geo_distance_m) + ' m'}</td>
             <td class="p-2 border text-center">${r.geo_accuracy_m == null ? '-' : '±' + Number(r.geo_accuracy_m) + ' m'}</td>
-            <td class="p-2 border text-center">${label}</td>
+            <td class="p-2 border text-center"><span style="color:${gpsStatusColor(r.geo_status)}">●</span> ${gpsStatusName(r.geo_status)}${r.geo_status && !has ? '<br><span class="text-[10px] text-gray-500">(coordinates not stored)</span>' : ''}</td>
+            <td class="p-2 border text-[11px]">${gpsFlagText(r.attendance_id) || '-'}</td>
             <td class="p-2 border text-center">${has ? `<a class="text-blue-600 underline font-semibold" target="_blank" rel="noopener" href="${map}">📍 Map</a><br><span class="text-[10px]">${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}</span>` : '-'}</td>
           </tr>`;
         }).join('')}
         </tbody></table></div>`;
 }
-function exportGpsAttendanceExcel() {
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (window._leafletLoading) return window._leafletLoading;
+  window._leafletLoading = new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => { window._leafletLoading = null; reject(new Error('Map library could not be loaded. Check the internet connection.')); };
+    document.head.appendChild(s);
+  });
+  return window._leafletLoading;
+}
+
+async function toggleGpsMap() {
   if (!currentGpsAttendanceRows.length) return toastWarning('Load GPS report first');
-  const rows = [['Date','Time','Class','Course','Roll','Registration','Student','Teacher','Status','GPS Status','Distance (m)','Accuracy (m)','Latitude','Longitude','Google Maps']];
-  currentGpsAttendanceRows.forEach(r => {
+  gpsMapOpen = !gpsMapOpen;
+  const box = document.getElementById('gpsMapBox');
+  if (box) box.classList.toggle('hidden', !gpsMapOpen);
+  if (!gpsMapOpen) return;
+  try { await loadLeaflet(); } catch (e) { gpsMapOpen = false; if (box) box.classList.add('hidden'); return toastError(e.message); }
+  refreshGpsMap();
+}
+
+// College centre + radius circle, with one pin per student location (coloured by status).
+function refreshGpsMap() {
+  const canvas = document.getElementById('gpsMapCanvas');
+  if (!canvas || !window.L) return;
+  if (gpsMap) { gpsMap.remove(); gpsMap = null; }
+  gpsMap = L.map(canvas);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(gpsMap);
+  const group = L.featureGroup().addTo(gpsMap);
+  if (gpsCenter) {
+    L.circle([gpsCenter.lat, gpsCenter.lng], { radius: gpsCenter.radius, color: '#2563eb', weight: 2, fillOpacity: 0.08 }).addTo(group);
+    L.circleMarker([gpsCenter.lat, gpsCenter.lng], { radius: 8, color: '#1e3a8a', weight: 2, fillColor: '#2563eb', fillOpacity: 1 }).bindTooltip('College centre').addTo(group);
+  }
+  const pts = gpsRowsFiltered().filter(r => r.latitude != null && r.longitude != null);
+  pts.forEach(r => {
+    const c = gpsStatusColor(r.geo_status);
+    L.circleMarker([Number(r.latitude), Number(r.longitude)], { radius: 5, color: '#fff', weight: 1, fillColor: c, fillOpacity: 0.9 })
+      .bindPopup(`<b>${escapeHtml(r.student_name || '-')}</b><br>Roll ${escapeHtml(r.class_roll || '-')} · ${escapeHtml(r.course_code || '')}<br>${escapeHtml(r.attendance_date)} · ${gpsStatusName(r.geo_status)}${r.geo_distance_m == null ? '' : ' · ' + Number(r.geo_distance_m) + ' m'}`)
+      .addTo(group);
+  });
+  if (group.getLayers().length) gpsMap.fitBounds(group.getBounds().pad(0.2), { maxZoom: 18 });
+  else gpsMap.setView([23.8103, 90.4125], 7);
+  setTimeout(() => gpsMap && gpsMap.invalidateSize(), 80);
+  const note = document.getElementById('gpsMapNote');
+  if (note) note.textContent = (gpsCenter ? `Blue circle = allowed radius (${gpsCenter.radius} m) around the college centre. ` : 'College centre is not set in Geo settings. ')
+    + `${pts.length} student location(s) shown · green inside, red outside, amber poor accuracy.`;
+}
+
+function exportGpsAttendanceExcel() {
+  const rowsOut = gpsRowsFiltered();
+  if (!rowsOut.length) return toastWarning('Load GPS report first');
+  const rows = [['Date','Time','Class','Course','Roll','Registration','Student','Teacher','Status','GPS Status','Distance (m)','Accuracy (m)','Latitude','Longitude','Flags','Google Maps']];
+  rowsOut.forEach(r => {
     const has = r.latitude != null && r.longitude != null;
-    rows.push([r.attendance_date, r.marked_at ? new Date(r.marked_at).toLocaleTimeString('en-GB') : '', r.class_year, r.course_code, r.class_roll, r.reg_no, r.student_name, r.teacher_name, r.status, r.geo_status, r.geo_distance_m, r.geo_accuracy_m, r.latitude, r.longitude, has ? 'https://www.google.com/maps?q=' + r.latitude + ',' + r.longitude : '']);
+    const flags = (currentGpsFlags[r.attendance_id] || []).map(x => (x.flag === 'shared_device' ? 'Shared device' : 'Same coordinates') + ' (' + x.detail + ')').join('; ');
+    rows.push([r.attendance_date, r.marked_at ? new Date(r.marked_at).toLocaleTimeString('en-GB') : '', r.class_year, r.course_code, r.class_roll, r.reg_no, r.student_name, r.teacher_name, r.status, gpsStatusName(r.geo_status), r.geo_distance_m, r.geo_accuracy_m, r.latitude, r.longitude, flags, has ? 'https://www.google.com/maps?q=' + r.latitude + ',' + r.longitude : '']);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows), wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'GPS Attendance');

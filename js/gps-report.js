@@ -11,7 +11,10 @@ function gpsMapsUrl(row) {
   return 'https://www.google.com/maps?q=' + encodeURIComponent(lat + ',' + lng);
 }
 function gpsStatusLabel(row) {
-  if (!row.has_coordinates) return 'GPS not captured';
+  if (!row.has_coordinates) {
+    const known = { inside: 'Inside radius', outside: 'Outside radius', poor_accuracy: 'Poor accuracy', no_location: 'No location' };
+    return row.geo_status ? (known[row.geo_status] || row.geo_status) + ' (coordinates not stored)' : 'GPS not recorded';
+  }
   const labels = { inside: 'Inside radius', outside: 'Outside radius', poor_accuracy: 'Poor accuracy', no_location: 'No location' };
   return labels[row.geo_status] || row.geo_status || 'Location captured';
 }
@@ -28,6 +31,12 @@ function gpsReportFormHtml(prefix, teacherMode) {
     '<div id="' + prefix + 'Result" class="mt-3"></div>';
 }
 async function showGpsAdminReport() {
+  // One Admin GPS screen only: Reports > GPS Tracking (filters, flags and map live there).
+  if (typeof showAdminTab === 'function' && typeof showReportTab === 'function') {
+    await showAdminTab('reports');
+    showReportTab('gps');
+    return;
+  }
   const el = document.getElementById('adminContent');
   if (!el) return;
   el.innerHTML = '<div class="space-y-3"><h3 class="text-lg font-bold dark:text-white">🛰️ GPS Attendance Tracking</h3><p class="text-xs text-gray-500 dark:text-gray-400">Exact student coordinates are restricted to administrators. Maximum date range: 31 days.</p>' + gpsReportFormHtml('gpsAdmin', false) + '</div>';
