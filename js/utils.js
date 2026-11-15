@@ -104,6 +104,36 @@ function sortStudents(students) {
   const rg = x => x.reg_no || (x.students && x.students.reg_no) || '';
   return students.slice().sort((a, b) => reg ? (_cmpReg(rg(a), rg(b)) || _cmpRoll(roll(a), roll(b))) : _cmpRoll(roll(a), roll(b)));
 }
+// ---- Student search ranking (shared by every search box) ----
+// 1) exact roll / reg match -> ONLY those students
+// 2) otherwise partial matches, best first:
+//    roll starts-with > reg starts-with > name word starts-with > roll contains > reg contains > name contains
+function studentMatchRank(st, q) {
+  const roll = String((st && (st.class_roll ?? (st.students && st.students.class_roll))) ?? '').trim().toLowerCase();
+  const reg = String((st && (st.reg_no ?? (st.students && st.students.reg_no))) ?? '').trim().toLowerCase();
+  const name = String((st && (st.name ?? (st.students && st.students.name))) ?? '').toLowerCase();
+  if (roll === q || reg === q) return 0;
+  if (roll.startsWith(q)) return 1;
+  if (reg.startsWith(q)) return 2;
+  if ((' ' + name.replace(/\./g, ' ')).includes(' ' + q)) return 3;
+  if (roll.includes(q)) return 4;
+  if (reg.includes(q)) return 5;
+  if (name.includes(q)) return 6;
+  return -1;
+}
+// Returns the matching students in display order. Exact match wins; otherwise ranked partial matches.
+function rankStudentsByQuery(list, rawQuery, limit) {
+  const q = String(rawQuery || '').trim().toLowerCase();
+  const base = sortStudents(list || []);
+  if (!q) return limit ? base.slice(0, limit) : base;
+  const ranked = [];
+  base.forEach(st => { const r = studentMatchRank(st, q); if (r >= 0) ranked.push({ st, r }); });
+  const exact = ranked.filter(x => x.r === 0);
+  const pool = exact.length ? exact : ranked;
+  const out = pool.map((x, i) => ({ ...x, i })).sort((a, b) => a.r - b.r || a.i - b.i).map(x => x.st);
+  return limit ? out.slice(0, limit) : out;
+}
+
 function updateSortModeBtn() {
   const b = document.getElementById('sortModeBtn'); if (!b) return;
   b.textContent = getSortMode() === 'reg' ? '🔢 Reg' : '🔢 Roll';

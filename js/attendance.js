@@ -302,11 +302,7 @@ async function loadStudentSuggestions(query) {
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + s.year + '_' + s.session_year);
     if (cached) {
-      const all = JSON.parse(cached);
-      const lc = q.toLowerCase();
-      let f = all.filter(st => String(st.class_roll) === q || String(st.reg_no) === q);
-      if (!f.length) f = all.filter(st => String(st.class_roll || '').toLowerCase().includes(lc) || String(st.reg_no || '').toLowerCase().includes(lc) || String(st.name || '').toLowerCase().includes(lc));
-      return renderSuggestions(f.slice(0, 10));
+      return renderSuggestions(rankStudentsByQuery(JSON.parse(cached), q, 10), q);
     }
     return;
   }
@@ -323,18 +319,18 @@ async function loadStudentSuggestions(query) {
       if (partialError) throw partialError;
       hit = partial?.ok ? (partial.students || []) : [];
     }
-    renderSuggestions(hit);
+    renderSuggestions(hit, q);
   } catch (err) { console.error('Suggestion error:', err); renderSuggestions([]); }
 }
 
-function renderSuggestions(students) {
+function renderSuggestions(students, query) {
   if (!students || !students.length) {
     hideSuggestionBox();
     document.getElementById('studentPreview').innerHTML = `<p class="text-red-500 text-sm font-bold">❌ No student found with this roll</p>`;
     document.getElementById('submitAttendanceBtn').disabled = true;
     return;
   }
-  const sorted = sortStudents(students);
+  const sorted = query ? rankStudentsByQuery(students, query) : sortStudents(students);
   const box = document.getElementById('suggestionBox');
   box.classList.remove('hidden');
   box.className = 'suggestion-box mb-3';

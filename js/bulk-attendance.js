@@ -140,10 +140,8 @@ function renderBulkAttendanceRows() {
     ? (_cmpReg(a.reg_no, b.reg_no) || _cmpRoll(a.class_roll, b.class_roll))
     : (_cmpRoll(a.class_roll, b.class_roll) || _cmpReg(a.reg_no, b.reg_no)));
 
-  const filtered = sorted.filter(s => {
-    if (!query) return true;
-    return [s.name, s.class_roll, s.reg_no].some(v => String(v || '').toLowerCase().includes(query));
-  });
+  // Exact roll/reg match first; otherwise best partial matches first (same rule as every search box).
+  const filtered = query ? rankStudentsByQuery(sorted, query) : sorted;
 
   const lockedCount = bulkAttendanceRoster.filter(s => !!bulkAttendanceExisting[s.id]).length;
   const selectedCount = bulkAttendanceSelected.size;

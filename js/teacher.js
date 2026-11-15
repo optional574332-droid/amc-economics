@@ -234,31 +234,31 @@ async function searchStudentForManual(query) {
   if (!navigator.onLine) {
     const cached = localStorage.getItem('amc_students_' + year + '_' + session_year);
     if (cached) {
-      const all = JSON.parse(cached), lc = q.toLowerCase();
-      let f = all.filter(st => String(st.class_roll) === q || String(st.reg_no) === q);
-      if (!f.length) f = all.filter(st => String(st.class_roll || '').toLowerCase().includes(lc) || String(st.reg_no || '').toLowerCase().includes(lc) || String(st.name || '').toLowerCase().includes(lc));
-      renderManualSuggestions(f.slice(0, 10));
+      renderManualSuggestions(rankStudentsByQuery(JSON.parse(cached), q, 10), q);
     }
     return;
   }
-  const { data, error } = await db.rpc('t_teacher_manual_student_lookup', {
+  // Exact roll / reg first; only if nothing matches exactly, fall back to ranked partial matches.
+  const lookup = async (includeName) => db.rpc('t_teacher_manual_student_lookup', {
     p_token: currentTeacher?.token,
     p_year: year,
     p_course_code: cv.split('|')[0],
     p_session_year: session_year,
     p_query: q,
-    p_include_name: true
+    p_include_name: includeName
   });
+  let { data, error } = await lookup(false);
+  if (!error && data?.ok && !(data.students || []).length) ({ data, error } = await lookup(true));
   if (error || !data?.ok) {
     console.error('Manual student lookup failed:', error || data?.message);
     toastError(data?.message || error?.message || 'Student search failed. Please try again.');
     renderManualSuggestions([]);
     return;
   }
-  renderManualSuggestions(data.students || []);
+  renderManualSuggestions(data.students || [], q);
 }
 
-function renderManualSuggestions(students) {
+function renderManualSuggestions(students, query) {
   const box = document.getElementById('meSuggestionBox');
   window._meStuId = null;
   if (!students || !students.length) {
@@ -267,7 +267,7 @@ function renderManualSuggestions(students) {
     box.innerHTML = '<div class="p-3 text-sm text-red-500">❌ Not found</div>';
     return;
   }
-  const sorted = sortStudents(students);
+  const sorted = query ? rankStudentsByQuery(students, query) : sortStudents(students);
   box.classList.remove('hidden');
   box.className = 'suggestion-box mb-3';
   box.innerHTML = sorted.map(s => `

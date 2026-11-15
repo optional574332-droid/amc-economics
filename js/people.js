@@ -479,7 +479,7 @@ async function loadStudentList() {
   const { data, error } = await q;
   if (error) { document.getElementById('studentListArea').innerHTML = `<p class="text-red-500">❌ ${error.message}</p>`; return; }
   let students = sortStudents(data || []);
-  if (search) students = students.filter(s => (s.name && s.name.toLowerCase().includes(search)) || (s.class_roll && s.class_roll.toLowerCase().includes(search)) || (s.reg_no && s.reg_no.toLowerCase().includes(search)));
+  if (search) students = rankStudentsByQuery(students, search);
   if (!students.length) { document.getElementById('studentListArea').innerHTML = `<p class="text-gray-400 text-sm text-center py-8">Nothing found</p>`; return; }
   const icons = { active: '✅', tc: '📤', inactive: '❌', graduated: '🎓', suspended: '⛔' };
   const area = document.getElementById('studentListArea');
