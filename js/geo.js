@@ -1,4 +1,4 @@
-/* js/geo.js — জিও-লোকেশন: ছাত্র হাজিরায় দূরত্ব যাচাই (log/block) + অ্যাডমিন সেটিং ট্যাব
+/* js/geo.js — জিও-লোকেশন: ছাত্র হাজিরায় দূরত্ব যাচাই (log/require_log/block) + অ্যাডমিন সেটিং ট্যাব
    RPC: get_geo_config, student_mark_attendance_v4, admin_get_geo_settings, admin_set_geo_settings
    Student attendance সবসময় v4 RPC দিয়ে জমা হয়; fallback নেই */
 
@@ -66,10 +66,10 @@ async function geoAdminRender() {
   const lbl = 'block text-sm font-semibold dark:text-white';
   el.innerHTML = `<div class="max-w-xl mx-auto space-y-4">
     <h3 class="text-xl font-bold dark:text-white">📍 Geo Location</h3>
-    <p class="text-xs text-gray-500 dark:text-gray-400"><b>OFF:</b> attendance works normally; the student GPS is not requested or saved. <b>ON + Allow:</b> GPS is recorded, but attendance is accepted even outside the radius. <b>ON + Block:</b> attendance is rejected outside the radius or when GPS is unavailable.</p>
+    <p class="text-xs text-gray-500 dark:text-gray-400"><b>OFF:</b> attendance works normally; GPS is not requested or saved. <b>ON + Allow:</b> GPS is recorded when available; attendance is accepted even without location or outside the radius. <b>ON + Require GPS:</b> location permission and a sufficiently accurate GPS fix are required; attendance is accepted inside or outside the radius and the location is recorded. <b>ON + Block:</b> attendance is rejected outside the radius or when GPS is unavailable.</p>
     <div class="grid grid-cols-2 gap-3">
       <label class="${lbl}">Status<select id="geoEnabled" class="${inp}"><option value="0">OFF</option><option value="1">ON</option></select></label>
-      <label class="${lbl}">Outside radius<select id="geoMode" class="${inp}"><option value="log">Allow attendance + record GPS</option><option value="block">Block attendance</option></select></label>
+      <label class="${lbl}">GPS Rule<select id="geoMode" class="${inp}"><option value="log">Allow attendance + record GPS</option><option value="require_log">Require GPS + record location</option><option value="block">Block attendance</option></select></label>
     </div>
     <div class="grid grid-cols-2 gap-3">
       <label class="${lbl}">Latitude<input id="geoLat" type="number" step="any" class="${inp}"></label>
