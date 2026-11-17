@@ -474,6 +474,12 @@ async function confirmAndSubmit() {
     let geoQ = null;
     // Offline submissions are queued with the student UUID and synced only through v4.
     const offlineGeoCfg = (typeof geoCfg !== 'undefined') ? geoCfg : { enabled: false };
+    // Required-GPS mode cannot safely queue attendance offline: the server must verify
+    // the live location and atomically save both attendance and coordinates.
+    if (offlineGeoCfg.enabled && offlineGeoCfg.mode === 'require_log') {
+      showGeoAttendanceWarning('unavailable', 'Internet is required in Require GPS mode. Reconnect and submit attendance again so the live location can be verified and recorded.');
+      return;
+    }
     if (offlineGeoCfg.enabled) geoQ = await getPositionOnce();
     queueAttendance(currentPinSession.pin, student.class_roll, student.id, geoQ);
     pendingConfirmation = null;
@@ -488,9 +494,9 @@ async function confirmAndSubmit() {
     if (gcfg.enabled) {
       const locationResult = await getPositionDetailed();
       geo = locationResult.position;
-      // 'block' mode needs a location. In 'log' mode attendance is still accepted and the record is
-      // marked "No location" on the server, so students with GPS problems are not locked out.
-      if (!geo && gcfg.mode === 'block') {
+      // 'block' and 'require_log' both require a live location. Only 'block'
+      // additionally enforces the college radius; require_log accepts any distance.
+      if (!geo && (gcfg.mode === 'block' || gcfg.mode === 'require_log')) {
         showGeoAttendanceWarning(locationResult.error);
         return;
       }
