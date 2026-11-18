@@ -228,7 +228,7 @@ async function cacheStudentsFor(year, session_year, access = {}) {
   try {
     let data, error;
     if (access.pin) {
-      ({ data, error } = await db.rpc('pin_student_roster', { p_pin: access.pin }));
+      ({ data, error } = await db.rpc('pin_student_roster', { p_pin: access.pin, p_device_id: deviceId }));
     } else if (access.teacherToken) {
       ({ data, error } = await db.rpc('t_teacher_student_roster', {
         p_token: access.teacherToken, p_year: year, p_session_year: session_year

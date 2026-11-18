@@ -189,7 +189,9 @@ async function submitPinRequest() {
     clearTimeout(timeoutId);
 
     if (error || !sessions || !sessions.length) {
-      showPinError('Invalid or expired PIN');
+      const lockMatch = /PIN_LOCKED:(\d+)/.exec((error && error.message) || '');
+      if (lockMatch) showPinError('Too many wrong PIN attempts. Try again in ' + lockMatch[1] + ' minute(s).');
+      else showPinError('Invalid or expired PIN');
       return;
     }
 
@@ -308,13 +310,14 @@ async function loadStudentSuggestions(query) {
   }
   try {
     const { data: exact, error: exactError } = await db.rpc('pin_student_lookup', {
-      p_pin: s.pin, p_query: q, p_partial: false
+      p_pin: s.pin, p_query: q, p_partial: false, p_device_id: deviceId
     });
     if (exactError) throw exactError;
+    if (exact?.locked) { toastWarning(exact.message); renderSuggestions([]); return; }
     let hit = exact?.ok ? (exact.students || []) : [];
     if (!hit.length) {
       const { data: partial, error: partialError } = await db.rpc('pin_student_lookup', {
-        p_pin: s.pin, p_query: q, p_partial: true
+        p_pin: s.pin, p_query: q, p_partial: true, p_device_id: deviceId
       });
       if (partialError) throw partialError;
       hit = partial?.ok ? (partial.students || []) : [];
@@ -381,15 +384,16 @@ async function findAndSubmit() {
     }
   } else {
     const { data: exact, error: exactError } = await db.rpc('pin_student_lookup', {
-      p_pin: s.pin, p_query: roll, p_partial: false
+      p_pin: s.pin, p_query: roll, p_partial: false, p_device_id: deviceId
     });
     if (exactError) throw exactError;
+    if (exact?.locked) { toastWarning(exact.message); return; }
     const exactRows = exact?.ok ? (exact.students || []) : [];
     if (exactRows.length > 1) { renderSuggestions(exactRows); toastInfo('Several students match — please pick yours'); return; }
     if (exactRows.length === 1) student = exactRows[0];
     else {
       const { data: partial, error: partialError } = await db.rpc('pin_student_lookup', {
-        p_pin: s.pin, p_query: roll, p_partial: true
+        p_pin: s.pin, p_query: roll, p_partial: true, p_device_id: deviceId
       });
       if (partialError) throw partialError;
       const part = partial?.ok ? (partial.students || []) : [];

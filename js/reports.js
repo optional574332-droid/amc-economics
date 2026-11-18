@@ -364,7 +364,7 @@ async function mySess(o = {}) {
 }
 async function mySessOne(o) { const r = await mySess(o); return { data: r.data[0] || null, error: r.error }; }
 async function sessByPin(pin, sig) {
-  let q = db.rpc('get_session_by_pin', { p_pin: pin });
+  let q = db.rpc('get_session_by_pin', { p_pin: pin, p_device_id: deviceId });
   if (sig) q = q.abortSignal(sig);
   const { data, error } = await q;
   return { data: data ? [{ ...data, is_active: true }] : [], error };
