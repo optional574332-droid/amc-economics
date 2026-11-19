@@ -190,8 +190,22 @@ async function submitPinRequest() {
 
     if (error || !sessions || !sessions.length) {
       const lockMatch = /PIN_LOCKED:(\d+)/.exec((error && error.message) || '');
-      if (lockMatch) showPinError('Too many wrong PIN attempts. Try again in ' + lockMatch[1] + ' minute(s).');
-      else showPinError('Invalid or expired PIN');
+      if (lockMatch) {
+        showPinError('Too many wrong PIN attempts. Try again in ' + lockMatch[1] + ' minute(s).');
+      } else {
+        let pinMsg = 'Invalid or expired PIN';
+        if (!error) {
+          try {
+            const { data: st } = await db.rpc('pin_attempts_left', { p_device_id: deviceId });
+            if (st && st.locked_minutes > 0) {
+              pinMsg = 'Too many wrong PIN attempts. Try again in ' + st.locked_minutes + ' minute(s).';
+            } else if (st && st.attempts_left !== null && st.attempts_left !== undefined) {
+              pinMsg = 'Invalid or expired PIN. ' + st.attempts_left + ' attempt(s) left before a 5-minute lock.';
+            }
+          } catch (e) { /* keep generic message */ }
+        }
+        showPinError(pinMsg);
+      }
       return;
     }
 
