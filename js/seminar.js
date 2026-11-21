@@ -1,2 +1,1 @@
-/* see local file - temporary short fix */
-console.error('seminar.js update pending - use artifacts');
+/* PLACEHOLDER_WILL_REPLACE */
