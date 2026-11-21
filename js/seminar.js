@@ -1,1 +1,1 @@
-/* PLACEHOLDER_WILL_REPLACE */
+FILE:/home/workdir/artifacts/seminar.js
