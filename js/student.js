@@ -1,4 +1,4 @@
-/* js/student.js — স্টুডেন্ট প্যানেল */
+/* js/student.js — Student panel */
 // ============================================================
 // STUDENT PANEL
 // ============================================================
@@ -121,6 +121,7 @@ async function loadStudentData() {
       ${notices?.map(n => `<div class="${n.priority === 'urgent' ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : 'bg-pink-50 dark:bg-pink-900/20 border-l-4 border-pink-400'} p-4 rounded-r-xl mb-2 shadow-sm"><b class="dark:text-white text-base">${n.priority === 'urgent' ? '🚨 ' : ''}${escapeHtml(n.title)}</b><p class="text-sm text-gray-600 dark:text-gray-300 mt-1">${escapeHtml(n.content)}</p></div>`).join('') || '<p class="text-gray-400 text-sm">No notices</p>'}
     `;
     if (typeof exsStudentLoad === 'function') exsStudentLoad(student);
+    if (typeof smnStudentMount === 'function') smnStudentMount();
     return true;
   } catch (e) {
     console.error('Student dashboard error:', e);
