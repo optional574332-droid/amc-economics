@@ -1,1 +1,1 @@
-FILE:/home/workdir/artifacts/seminar.js
+PLACEHOLDER_WILL_FAIL
