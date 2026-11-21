@@ -79,7 +79,66 @@
   <div id="app"></div>
 </main>
 
-<!-- The full sections are in the local file. This is still incomplete in this call due to size. -->
+<!-- HOME / PUBLIC -->
+<section id="homeSection" class="fade-in">
+  <div class="text-center py-12 px-4">
+    <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-4xl mb-6 shadow-xl">🎓</div>
+    <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800 dark:text-white mb-3">AMC Economics</h1>
+    <p class="text-gray-600 dark:text-gray-300 text-lg mb-8 max-w-xl mx-auto">Attendance, Marks, Routine &amp; Seminar Library Management System</p>
+    <div class="flex flex-wrap justify-center gap-3">
+      <button onclick="showSection('adminLogin')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold btn-pop shadow-lg">Admin Login</button>
+      <button onclick="showSection('teacherLogin')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold btn-pop shadow-lg">Teacher Login</button>
+      <button onclick="showSection('studentLogin')" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold btn-pop shadow-lg">Student Login</button>
+    </div>
+  </div>
+</section>
+
+<!-- ADMIN LOGIN -->
+<section id="adminLoginSection" class="hidden fade-in max-w-md mx-auto mt-8 px-4">
+  <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8">
+    <h2 class="text-2xl font-extrabold text-gray-800 dark:text-white mb-6">🔐 Admin Login</h2>
+    <form id="adminLoginForm" onsubmit="event.preventDefault(); adminLogin()">
+      <input id="adminEmail" name="email" type="email" placeholder="Email" required class="w-full mb-3 px-4 py-3 border-2 rounded-xl dark:bg-gray-700 dark:text-white dark:border-gray-600">
+      <input id="adminPassword" name="password" type="password" placeholder="Password" required class="w-full mb-4 px-4 py-3 border-2 rounded-xl dark:bg-gray-700 dark:text-white dark:border-gray-600">
+      <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold btn-pop">Login</button>
+    </form>
+    <button onclick="showSection('home')" class="mt-4 text-sm text-gray-500 hover:underline">← Back</button>
+  </div>
+</section>
+
+<!-- TEACHER LOGIN -->
+<section id="teacherLoginSection" class="hidden fade-in max-w-md mx-auto mt-8 px-4">
+  <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8">
+    <h2 class="text-2xl font-extrabold text-gray-800 dark:text-white mb-6">👨‍🏫 Teacher Login</h2>
+    <form id="teacherLoginForm" onsubmit="event.preventDefault(); teacherLogin()">
+      <input id="teacherUserId" type="text" placeholder="User ID" required class="w-full mb-3 px-4 py-3 border-2 rounded-xl dark:bg-gray-700 dark:text-white dark:border-gray-600">
+      <input id="teacherPin" type="password" placeholder="PIN" required class="w-full mb-4 px-4 py-3 border-2 rounded-xl dark:bg-gray-700 dark:text-white dark:border-gray-600">
+      <button type="submit" class="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold btn-pop">Login</button>
+    </form>
+    <button onclick="showSection('home')" class="mt-4 text-sm text-gray-500 hover:underline">← Back</button>
+  </div>
+</section>
+
+<!-- STUDENT LOGIN -->
+<section id="studentLoginSection" class="hidden fade-in max-w-md mx-auto mt-8 px-4">
+  <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8">
+    <h2 class="text-2xl font-extrabold text-gray-800 dark:text-white mb-6">🎓 Student Login</h2>
+    <form id="studentLoginForm" onsubmit="event.preventDefault(); studentLogin()">
+      <input id="studentRollInput" type="text" placeholder="Roll Number" required class="w-full mb-3 px-4 py-3 border-2 rounded-xl dark:bg-gray-700 dark:text-white dark:border-gray-600">
+      <input id="studentRegVerify" type="text" placeholder="Registration No (optional)" class="w-full mb-4 px-4 py-3 border-2 rounded-xl dark:bg-gray-700 dark:text-white dark:border-gray-600">
+      <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold btn-pop">Login</button>
+    </form>
+    <button onclick="showSection('home')" class="mt-4 text-sm text-gray-500 hover:underline">← Back</button>
+  </div>
+</section>
+
+<!-- Placeholders for other sections that app.js expects -->
+<section id="teacherDirectorySection" class="hidden"></section>
+<section id="noticeSection" class="hidden"></section>
+<section id="adminDashboardSection" class="hidden"></section>
+<section id="teacherDashboardSection" class="hidden"></section>
+<section id="studentDashboardSection" class="hidden"></section>
+
 <script src="js/config.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
@@ -99,8 +158,8 @@
 <script src="js/teacher-routine.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/gps-report.js"></script>
-<script src="js/seminar-hooks.js"></script>
 <script src="js/seminar.js"></script>
-<script src="sw.js"></script>
+<script src="js/seminar-hooks.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
