@@ -1,1 +1,105 @@
-FILE:/home/workdir/artifacts/index.html
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>AMC Economics — Attendance System</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#102a43">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+  tailwind.config = { darkMode: 'class', theme: { extend: {} } };
+  (function() {
+    const saved = localStorage.getItem('amc_theme') || 'auto';
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = saved === 'dark' || (saved === 'auto' && prefersDark);
+    if (isDark) document.documentElement.classList.add('dark');
+  })();
+</script>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="min-h-screen pb-20">
+
+<div id="globalLoader"><div class="spinner"></div></div>
+<div id="offlineBadge"></div>
+
+<div id="networkBanner" class="relative z-30 bg-orange-500 text-white px-4 py-2 text-center text-sm font-bold items-center justify-center gap-2 shadow-lg">
+  <span>🐌 Slow network detected — attendance will be optimized</span>
+</div>
+
+<div class="teacher-bottom-nav hidden" id="teacherBottomNav">
+  <button onclick="showTeacherTab('takeAttendance'); setActiveBottomNav('takeAttendance')" id="nav-takeAttendance" class="active"><span>📝</span>Attend</button>
+  <button onclick="showTeacherTab('liveReport'); setActiveBottomNav('liveReport')" id="nav-liveReport"><span>🔴</span>Live</button>
+  <button onclick="showTeacherTab('attendanceReport'); setActiveBottomNav('attendanceReport')" id="nav-attendanceReport"><span>📊</span>Reports</button>
+  <button onclick="showTeacherTab('markEntry'); setActiveBottomNav('markEntry')" id="nav-markEntry"><span>✍️</span>Marks</button>
+  <button onclick="toggleMoreMenu(event)" id="nav-more"><span>⚙️</span>More</button>
+</div>
+
+<nav class="bg-white/10 dark:bg-black/30 backdrop-blur-md shadow-lg sticky top-0 z-40">
+  <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+    <div class="flex items-center gap-3"><div class="brand-chip">🎓</div><div class="leading-tight"><h1 class="text-white font-extrabold text-lg tracking-tight">AMC Economics</h1><p class="text-white/70 text-[11px] font-semibold tracking-wide">Attendance System</p></div></div>
+    <div class="flex gap-2 text-sm items-center flex-wrap justify-end">
+      
+      <button id="installBtn" onclick="installPWA()" class="hidden bg-emerald-500 text-white px-3 py-2 rounded-lg btn-pop text-sm animate-pulse font-bold">
+        📲 Install
+      </button>
+
+      <button onclick="showSection('notice')" class="bg-pink-500 text-white px-3 py-2 rounded-lg btn-pop hidden md:block font-semibold">📢 Notices</button>
+      <button onclick="showSection('teacherDirectory')" class="bg-cyan-500 text-white px-3 py-2 rounded-lg btn-pop hidden md:block font-semibold">👨‍🏫 Faculty</button>
+      
+      <button onclick="toggleTheme()" id="themeToggleBtn" type="button" aria-label="Switch to dark mode" title="Switch theme" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop text-lg">🌙</button>
+      
+      <div class="hidden md:flex gap-2">
+        <button onclick="showSection('adminLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop font-semibold">Admin</button>
+        <button onclick="showSection('teacherLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop font-semibold">Teacher</button>
+        <button onclick="showSection('studentLogin')" class="bg-white/20 text-white px-3 py-2 rounded-lg btn-pop font-semibold">Student</button>
+      </div>
+
+      <button id="mobileMenuToggle" onclick="toggleMobileMenu(event)" aria-controls="mobileMenu" aria-expanded="false" aria-label="Open navigation menu" class="md:hidden bg-white/20 text-white px-3 py-2 rounded-lg btn-pop text-lg">☰</button>
+    </div>
+  </div>
+  <div id="mobileMenu" class="hidden md:hidden bg-[#102a43] text-white px-4 py-3 flex flex-col gap-2 border-t border-white/20">
+    <button onclick="showSection('notice'); closeMobileMenu()" class="text-left py-2 border-b border-indigo-700 font-semibold">📢 Notice Board</button>
+    <button onclick="showSection('teacherDirectory'); closeMobileMenu()" class="text-left py-2 border-b border-indigo-700 font-semibold">👨‍🏫 Faculty Directory</button>
+    <button onclick="showSection('adminLogin'); closeMobileMenu()" class="text-left py-2 border-b border-indigo-700 font-semibold">Admin Login</button>
+    <button onclick="showSection('teacherLogin'); closeMobileMenu()" class="text-left py-2 border-b border-indigo-700 font-semibold">Teacher Login</button>
+    <button onclick="showSection('studentLogin'); closeMobileMenu()" class="text-left py-2 font-semibold">Student Login</button>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-4 py-6">
+  <div id="app"></div>
+</main>
+
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/teacher.js"></script>
+<script src="js/student.js"></script>
+<script src="js/attendance.js"></script>
+<script src="js/bulk-attendance.js"></script>
+<script src="js/exam.js"></script>
+<script src="js/academic.js"></script>
+<script src="js/people.js"></script>
+<script src="js/directory.js"></script>
+<script src="js/reports.js"></script>
+<script src="js/backup.js"></script>
+<script src="js/routine.js"></script>
+<script src="js/teacher-routine.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/gps-report.js"></script>
+<script src="js/seminar-hooks.js"></script>
+<script src="js/seminar.js"></script>
+<script src="sw.js"></script>
+</body>
+</html>
