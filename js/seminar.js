@@ -13,7 +13,7 @@
   // ============================================================
   const S = { role: null, active: false, tab: 'overview', books: null, settings: null,
               found: {}, sel: null, issued: null, pending: null, rep: null, bookPage: 0,
-              addRows: 5, upload: null, repKind: 'stock' };
+              addRows: 5, upload: null, repKind: 'unreturned' };
   const $ = id => document.getElementById(id);
   const esc = v => (typeof escapeHtml === 'function' ? escapeHtml(v == null ? '' : String(v)) : String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
   const isUuid = v => /^[0-9a-f-]{36}$/i.test(String(v || ''));
@@ -23,6 +23,10 @@
 
   function tok() { return S.role === 'admin' ? null : ((typeof currentTeacher !== 'undefined' && currentTeacher && currentTeacher.token) || null); }
   function alive(tab) { return S.active && $('semBody') && (!tab || S.tab === tab); }
+  // For views that can also be shown inside the Reports tab (Current stock, Overdue)
+  function liveIn(body, tab) {
+    return !!(S.active && body && body.isConnected && (S.tab === tab || (S.tab === 'reports' && body.id === 'semRepBody' && S.repKind === (tab === 'overview' ? 'stock' : tab))));
+  }
 
   // ---------- English text for messages that the database sends in Bengali ----------
   const MSG = {
@@ -225,7 +229,7 @@
   // ============================================================
   async function vOverview(body) {
     const r = await staffCall('sem_stock_summary');
-    if (!alive('overview')) return;
+    if (!liveIn(body, 'overview')) return;
     if (!r.ok) { body.innerHTML = errHtml(r.message); return; }
     const s = r.summary || {}, cats = r.by_category || [];
     const card = (label, v, cls) => `<div class="${cls} rounded-xl p-3 text-center"><p class="text-2xl font-extrabold num-display">${v || 0}</p><p class="text-[11px] font-semibold opacity-80">${label}</p></div>`;
@@ -429,7 +433,7 @@
   }
   async function vOverdue(body) {
     const r = await staffCall('sem_overdue');
-    if (!alive('overdue')) return;
+    if (!liveIn(body, 'overdue')) return;
     if (!r.ok) { body.innerHTML = errHtml(r.message); return; }
     const items = r.items || [];
     setRep('seminar_overdue', 'Seminar Library — Overdue Books', ['Student', 'Year', 'Session', 'Roll', 'Mobile', 'Book No', 'Title', 'Due date', 'Days late'],
