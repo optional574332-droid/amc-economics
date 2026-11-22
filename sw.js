@@ -4,10 +4,10 @@
 // Updated: 2026-11-05
 // ============================================================
 
-const CACHE_NAME    = 'amc-attendance-v23';
-const STATIC_CACHE  = 'amc-static-v23';
-const DYNAMIC_CACHE = 'amc-dynamic-v23';
-const CDN_CACHE     = 'amc-cdn-v23';
+const CACHE_NAME    = 'amc-attendance-v24';
+const STATIC_CACHE  = 'amc-static-v24';
+const DYNAMIC_CACHE = 'amc-dynamic-v24';
+const CDN_CACHE     = 'amc-cdn-v24';
 
 const urlsToCache = [
   './',
@@ -32,6 +32,7 @@ const urlsToCache = [
   './js/geo.js',
   './js/gps-report.js',
   './js/exam.js',
+  './js/seminar.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
